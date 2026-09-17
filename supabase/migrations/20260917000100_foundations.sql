@@ -173,6 +173,22 @@ $$;
 create trigger on_auth_user_created after insert on auth.users
   for each row execute function private.handle_new_user();
 
+-- Cover accounts created before this migration was applied.
+insert into public.profiles (id, display_name)
+select u.id,
+  left(coalesce(nullif(trim(u.raw_user_meta_data ->> 'full_name'), ''),
+                nullif(split_part(u.email, '@', 1), ''), 'Creador'), 120)
+from auth.users u
+on conflict (id) do nothing;
+
+insert into public.workspaces (name, owner_id, is_personal)
+select 'Mi espacio', u.id, true
+from auth.users u
+where not exists (
+  select 1 from public.workspaces w
+  where w.owner_id = u.id and w.is_personal
+);
+
 revoke all on public.profiles, public.workspaces, public.workspace_memberships,
   public.ideas, public.projects from public, anon, authenticated;
 grant select on public.profiles to authenticated;

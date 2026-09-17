@@ -35,7 +35,9 @@ Usa la **clave publicable** (o la anon key si tu proyecto aún la utiliza). Nunc
 1. Crea un proyecto de Supabase y copia su URL y clave publicable a `.env.local`.
 2. En Auth → URL Configuration, configura la URL de desarrollo y agrega `http://localhost:3000/auth/confirm` como redirect permitido. Agrega la URL correspondiente del despliegue cuando exista.
 3. Revisa `supabase/migrations/20260917000100_foundations.sql`. Aplica la migración con Supabase CLI (`pnpm exec supabase login`, `pnpm exec supabase link --project-ref <project-ref>`, `pnpm db:push`) o desde el SQL Editor del proyecto. El CLI solicitará la contraseña de la base si hace falta.
-4. Para pruebas locales de la base necesitas Docker: `pnpm db:start` y `pnpm db:reset`. No se aplicó la migración a ninguna base remota en esta entrega porque faltan las credenciales del proyecto.
+4. Para pruebas locales de la base necesitas Docker: `pnpm db:start` y `pnpm db:reset`. La migración remota sigue pendiente hasta que el CLI tenga acceso administrativo al proyecto.
+
+La URL y la clave publicable conectan la aplicación, pero no autorizan cambios en el esquema. Para aplicar migraciones al proyecto remoto, inicia sesión en el CLI de Supabase o usa una conexión administrativa a PostgreSQL. La migración inicial también prepara perfiles y espacios para cuentas creadas antes de aplicarla.
 
 El registro crea automáticamente un perfil y un espacio personal mediante triggers. Las tablas `profiles`, `workspaces`, `workspace_memberships`, `ideas` y `projects` tienen RLS. Solo los miembros leen un espacio; los roles owner/admin/editor pueden crear y editar ideas y proyectos. La gestión de invitaciones y membresías se incorporará con RPC auditadas en la etapa correspondiente.
 
