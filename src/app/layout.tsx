@@ -1,3 +1,5 @@
+import { ClerkProvider } from "@clerk/nextjs";
+import { shadcn } from "@clerk/ui/themes";
 import type { Metadata } from "next";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
@@ -10,7 +12,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="es" className="h-full antialiased">
-      <body className="min-h-full"><TooltipProvider>{children}</TooltipProvider></body>
+      <body className="min-h-full">
+        <ClerkProvider appearance={{ theme: shadcn }}>
+          <TooltipProvider>{children}</TooltipProvider>
+        </ClerkProvider>
+      </body>
     </html>
   );
 }

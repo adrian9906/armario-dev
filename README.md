@@ -1,47 +1,44 @@
 # Armario Dev
 
-Armario Dev es un espacio compartido para transformar ideas en proyectos de software. Esta entrega implementa la etapa **0 · Fundaciones** del roadmap: base técnica, sistema visual, esquema inicial, autenticación y CI. El CRUD de ideas y proyectos, tareas, diagramas y colaboración se desarrolla en las etapas siguientes.
+Espacio compartido para transformar ideas en proyectos de software. Esta entrega cubre la etapa **0 · Fundaciones**: Next.js, shadcn/ui, autenticación con Clerk, esquema PostgreSQL en Supabase, RLS, pruebas base y CI.
 
-## Stack
+## Stack y estructura
 
-- Next.js 16 (App Router), React 19, TypeScript y Tailwind CSS 4.
-- shadcn/ui (base-nova) para la interfaz, con Poppins y la paleta del prototipo.
-- Supabase Auth y PostgreSQL con Row Level Security (RLS).
-- Vitest para las pruebas base y GitHub Actions para CI.
+- Next.js 16, React 19, TypeScript y Tailwind CSS 4.
+- shadcn/ui con Poppins y tema pastel; los formularios de Clerk usan el tema shadcn.
+- Clerk para cuentas y sesiones; Supabase para PostgreSQL y Data API.
+- `src/proxy.ts`: middleware de Clerk.
+- `src/lib/supabase/server.ts`: cliente Supabase que transmite el token de Clerk.
+- `supabase/migrations/20260917000100_foundations.sql`: esquema y políticas RLS.
+- `.github/workflows/ci.yml`: lint, tipos, pruebas y build.
 
-## Ejecutar la aplicación
+## Ejecutar
 
 Requiere Node.js 22 y pnpm 11.19.0.
 
 ```bash
 pnpm install
-Copy-Item .env.example .env.local
 pnpm dev
 ```
 
-Abre `http://localhost:3000`. La página principal funciona sin Supabase. El registro y el panel muestran un estado de configuración hasta que se agreguen las variables públicas.
+El CLI de Clerk ya generó claves de desarrollo en `.env.local`. La URL y la clave publicable de Supabase están en `.env`. Ambos archivos están ignorados por Git. Para otra instalación, usa `.env.example` como guía y obtén claves propias. Nunca coloques `CLERK_SECRET_KEY` ni una clave de servicio de Supabase en variables `NEXT_PUBLIC_`.
 
-En `.env.local`, configura:
+## Conectar Clerk con Supabase
 
-```text
-NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
-```
+1. En el [panel de Clerk](https://dashboard.clerk.com/), activa la integración con Supabase para que sus tokens de sesión incluyan `role: authenticated`. La instancia creada por el CLI es de desarrollo y debe reclamarse con `clerk auth login` antes de usarla en producción.
+2. Copia el dominio de Clerk que muestra esa integración. En el [panel de Supabase](https://supabase.com/dashboard), entra en **Authentication → Sign In / Providers → Third-Party Auth**, agrega Clerk y pega el dominio.
+3. Aplica la migración con acceso administrativo: `supabase login`, `supabase link --project-ref <project-ref>` y `supabase db push`. La URL y la clave publicable de `.env` solo autorizan llamadas de la aplicación; no permiten modificar el esquema. También se puede ejecutar el SQL desde el SQL Editor del proyecto.
+4. Inicia sesión en la app. El panel llama a `ensure_personal_workspace`: crea el perfil y el espacio personal del usuario de Clerk si aún no existen.
 
-Usa la **clave publicable** (o la anon key si tu proyecto aún la utiliza). Nunca pongas una service role key en variables `NEXT_PUBLIC_` ni la subas a Git. `.env.local` está ignorado.
+Para una base local con Docker, agrega `[auth.third_party.clerk]` y el dominio de tu instancia a `supabase/config.toml`, y usa `pnpm db:start`/`pnpm db:reset`.
 
-## Preparar Supabase
+## Seguridad y alcance
 
-1. Crea un proyecto de Supabase y copia su URL y clave publicable a `.env.local`.
-2. En Auth → URL Configuration, configura la URL de desarrollo y agrega `http://localhost:3000/auth/confirm` como redirect permitido. Agrega la URL correspondiente del despliegue cuando exista.
-3. Revisa `supabase/migrations/20260917000100_foundations.sql`. Aplica la migración con Supabase CLI (`pnpm exec supabase login`, `pnpm exec supabase link --project-ref <project-ref>`, `pnpm db:push`) o desde el SQL Editor del proyecto. El CLI solicitará la contraseña de la base si hace falta.
-4. Para pruebas locales de la base necesitas Docker: `pnpm db:start` y `pnpm db:reset`. La migración remota sigue pendiente hasta que el CLI tenga acceso administrativo al proyecto.
+Las tablas `profiles`, `workspaces`, `workspace_memberships`, `ideas` y `projects` usan RLS. Los IDs de usuario son los `sub` de los JWT verificados de Clerk. Solo los miembros leen su espacio; owner/admin/editor pueden crear y editar ideas y proyectos. Las invitaciones y la gestión de membresías vendrán en etapas posteriores.
 
-La URL y la clave publicable conectan la aplicación, pero no autorizan cambios en el esquema. Para aplicar migraciones al proyecto remoto, inicia sesión en el CLI de Supabase o usa una conexión administrativa a PostgreSQL. La migración inicial también prepara perfiles y espacios para cuentas creadas antes de aplicarla.
+El panel muestra contadores reales cuando la migración y la integración están activas. Las acciones de ideas y proyectos siguen deshabilitadas hasta la próxima etapa. El esquema anterior de la app no llegó a aplicarse al proyecto remoto; si ya se crearon cuentas con Supabase Auth, habrá que migrarlas a Clerk por separado.
 
-El registro crea automáticamente un perfil y un espacio personal mediante triggers. Las tablas `profiles`, `workspaces`, `workspace_memberships`, `ideas` y `projects` tienen RLS. Solo los miembros leen un espacio; los roles owner/admin/editor pueden crear y editar ideas y proyectos. La gestión de invitaciones y membresías se incorporará con RPC auditadas en la etapa correspondiente.
-
-## Comprobaciones
+## Verificación
 
 ```bash
 pnpm lint
@@ -50,16 +47,4 @@ pnpm test
 pnpm build
 ```
 
-GitHub Actions ejecuta esas cuatro comprobaciones en cada push y pull request.
-
-## Estructura
-
-- `src/app`: páginas pública, registro, inicio de sesión, confirmación y panel.
-- `src/components/ui`: componentes shadcn/ui generados con CLI.
-- `src/lib/supabase` y `src/proxy.ts`: clientes SSR y renovación de sesión.
-- `supabase/migrations`: esquema PostgreSQL y políticas RLS versionadas.
-- `.github/workflows/ci.yml`: comprobaciones de integración continua.
-
-## Próxima etapa
-
-Captura de ideas, conversión a proyecto y primeros flujos de colaboración. El panel actual enseña los contadores reales cuando Supabase está conectado y mantiene deshabilitadas las acciones aún no implementadas.
+GitHub Actions ejecuta estas comprobaciones en push y pull request.
