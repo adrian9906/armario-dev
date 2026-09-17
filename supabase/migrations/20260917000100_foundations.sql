@@ -1,4 +1,4 @@
--- Semilla foundation: identity, workspaces, ideas and project identity.
+-- Armario Dev foundation: identity, workspaces, ideas and project identity.
 -- All public tables use RLS. Team mutations will be added through audited RPCs.
 
 create schema if not exists private;

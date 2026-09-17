@@ -1,6 +1,6 @@
-# Semilla
+# Armario Dev
 
-Semilla es un espacio compartido para transformar ideas en proyectos de software. Esta entrega implementa la etapa **0 · Fundaciones** del roadmap: base técnica, sistema visual, esquema inicial, autenticación y CI. El CRUD de ideas y proyectos, tareas, diagramas y colaboración se desarrolla en las etapas siguientes.
+Armario Dev es un espacio compartido para transformar ideas en proyectos de software. Esta entrega implementa la etapa **0 · Fundaciones** del roadmap: base técnica, sistema visual, esquema inicial, autenticación y CI. El CRUD de ideas y proyectos, tareas, diagramas y colaboración se desarrolla en las etapas siguientes.
 
 ## Stack
 

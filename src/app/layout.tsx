@@ -3,7 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Semilla — de idea a proyecto",
+  title: "Armario Dev — tus ideas, proyectos y equipo",
   description: "Organiza ideas y construye proyectos con tu equipo.",
 };
 
