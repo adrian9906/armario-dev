@@ -1,4 +1,5 @@
 import { ClerkProvider } from "@clerk/nextjs";
+import { esES } from "@clerk/localizations/es-ES";
 import { shadcn } from "@clerk/ui/themes";
 import type { Metadata } from "next";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -13,7 +14,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="es" className="h-full antialiased">
       <body className="min-h-full">
-        <ClerkProvider appearance={{ theme: shadcn }}>
+        <ClerkProvider appearance={{ theme: shadcn }} localization={esES}>
           <TooltipProvider>{children}</TooltipProvider>
         </ClerkProvider>
       </body>

@@ -11,6 +11,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.8.0
         version: 1.8.0(@types/react@19.3.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@clerk/localizations':
+        specifier: ^4.17.1
+        version: 4.17.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@clerk/nextjs':
         specifier: ^7.9.4
         version: 7.9.4(next@16.3.5(@babel/core@7.29.7(supports-color@8.1.1))(@types/node@20.19.43)(babel-plugin-macros@3.1.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -20,6 +23,9 @@ importers:
       '@fontsource/poppins':
         specifier: ^5.3.0
         version: 5.3.0
+      '@supabase/ssr':
+        specifier: ^0.12.7
+        version: 0.12.7(@supabase/supabase-js@2.116.0)
       '@supabase/supabase-js':
         specifier: ^2.116.0
         version: 2.116.0
@@ -1494,6 +1500,11 @@ packages:
     resolution: {integrity: sha512-MHAnlXxi2s6yiJsZsQMfs2B3RFxeVfQWxerqYhIMqcCQV/FuY3LIeouPEkXw/ah7wUWMLYwempF9MOCUScyddg==}
     engines: {node: '>=22.0.0'}
 
+  '@supabase/ssr@0.12.7':
+    resolution: {integrity: sha512-wiBtEie1KkRJi9RrZWY3R2imRhX1JY7qMyUCH2z9AUk15gQebNEplM+urbCKamdxaTJLXUU6LlpkJsaxhojCEg==}
+    peerDependencies:
+      '@supabase/supabase-js': ^2.114.0
+
   '@supabase/storage-js@2.116.0':
     resolution: {integrity: sha512-6/3hR6vccBP6oGM5B6RfbwZcTCKmQOodd/ZWQdsw8yJsU5zO/a//oBL6yLnmgxcjnHSrelW8rsO7hL5DPybyUQ==}
     engines: {node: '>=22.0.0'}
@@ -2274,6 +2285,10 @@ packages:
   cookie@0.7.2:
     resolution: {integrity: sha512-yki5XnKuf750l50uGTllt6kKILY4nQ1eNIQatoXEByZ5dWgnKqbnqmTrBE5B4N7lrMJKQ2ytWMiTO2o0v6Ew/w==}
     engines: {node: '>= 0.6'}
+
+  cookie@1.1.1:
+    resolution: {integrity: sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ==}
+    engines: {node: '>=18'}
 
   copy-to-clipboard@3.3.3:
     resolution: {integrity: sha512-2KV8NhB5JqC3ky0r9PMCAZKbUHSwtEo4CwCs0KXgruG43gX5PMqDEBbVU4OUzw2MuAWUfsuFmWvEKG5QRfSnJA==}
@@ -6455,6 +6470,11 @@ snapshots:
       '@supabase/phoenix': 0.4.5
       tslib: 2.8.1
 
+  '@supabase/ssr@0.12.7(@supabase/supabase-js@2.116.0)':
+    dependencies:
+      '@supabase/supabase-js': 2.116.0
+      cookie: 1.1.1
+
   '@supabase/storage-js@2.116.0':
     dependencies:
       iceberg-js: 0.8.1
@@ -7205,6 +7225,8 @@ snapshots:
   cookie-signature@1.2.2: {}
 
   cookie@0.7.2: {}
+
+  cookie@1.1.1: {}
 
   copy-to-clipboard@3.3.3:
     dependencies:
