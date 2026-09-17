@@ -1,69 +1,25 @@
-import Image from "next/image";
+import Link from "next/link";
+import { ArrowRight, Check, GitBranch, Lightbulb, ListTodo, Shapes } from "lucide-react";
+import { Brand } from "@/components/brand";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+
+const steps = [
+  { number: "01", title: "Captura la chispa", copy: "Guarda la idea, el problema que resuelve y las primeras notas.", icon: Lightbulb, color: "bg-pastel-mint" },
+  { number: "02", title: "Dale estructura", copy: "Define requisitos, stack, arquitectura y los flujos del producto.", icon: Shapes, color: "bg-pastel-sky" },
+  { number: "03", title: "Haz que avance", copy: "Organiza tareas, checklist y decisiones con tu equipo.", icon: ListTodo, color: "bg-pastel-lavender" },
+];
 
 export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
+  return <div className="min-h-screen overflow-hidden bg-background">
+    <header className="mx-auto flex max-w-7xl items-center justify-between px-5 py-7 sm:px-8"><Brand /><div className="flex items-center gap-2"><Button variant="ghost" render={<Link href="/login" />}>Entrar</Button><Button render={<Link href="/signup" />}>Crear cuenta <ArrowRight data-icon="inline-end" aria-hidden="true" /></Button></div></header>
+    <main>
+      <section className="mx-auto grid max-w-7xl items-center gap-12 px-5 pb-20 pt-14 sm:px-8 lg:grid-cols-2 lg:pt-24">
+        <div><Badge className="mb-7 border-0 bg-pastel-mint px-4 py-2 text-foreground">Un espacio para crear en compañía ✦</Badge><h1 className="max-w-2xl text-5xl font-semibold leading-[1.13] tracking-tight sm:text-6xl lg:text-7xl">Las grandes ideas <span className="text-primary">crecen juntas.</span></h1><p className="mt-7 max-w-xl text-lg leading-relaxed text-muted-foreground">De una nota rápida a un proyecto real. Reúne ideas, decisiones y próximos pasos en un taller claro para ti y tu equipo.</p><div className="mt-9 flex flex-wrap items-center gap-3"><Button size="lg" className="h-12 px-6" render={<Link href="/signup" />}>Empieza gratis <ArrowRight data-icon="inline-end" aria-hidden="true" /></Button><Button size="lg" variant="outline" className="h-12 px-6" render={<Link href="/login" />}>Ya tengo cuenta</Button></div><p className="mt-9 text-sm text-muted-foreground">Un lugar para imaginar y construir, juntos.</p></div>
+        <div className="relative rounded-[36px] bg-pastel-lavender/60 p-5 sm:p-8"><div className="rounded-[28px] border border-border/70 bg-card p-5 shadow-xl sm:p-7"><div className="mb-6 flex items-center justify-between"><div className="flex items-center gap-2 text-sm font-semibold"><span className="size-3 rounded-full bg-primary" /> Mi taller <span className="text-muted-foreground">/</span> Proyectos</div><div className="flex gap-1.5"><span className="size-2 rounded-full bg-pastel-peach" /><span className="size-2 rounded-full bg-pastel-mint" /><span className="size-2 rounded-full bg-pastel-sky" /></div></div><div className="mb-6 flex items-end justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Tu siguiente gran idea</p><h2 className="mt-1 text-2xl font-semibold">Un huerto de proyectos</h2></div><span className="rounded-full bg-pastel-mint px-3 py-1.5 text-xs font-medium">En marcha</span></div><div className="grid gap-3 sm:grid-cols-2"><div className="rounded-2xl bg-pastel-sky p-4"><Lightbulb className="mb-5 size-5" aria-hidden="true" /><p className="font-semibold">Ideas</p><p className="mt-1 text-xs">Todo comienza aquí</p></div><div className="rounded-2xl bg-pastel-mint p-4"><GitBranch className="mb-5 size-5" aria-hidden="true" /><p className="font-semibold">Arquitectura</p><p className="mt-1 text-xs">Conecta las piezas</p></div></div><div className="mt-3 rounded-2xl bg-muted p-4"><div className="mb-4 flex items-center justify-between"><span className="text-sm font-semibold">Próximos pasos</span><span className="text-xs text-muted-foreground">2 de 3</span></div><div className="space-y-3 text-xs"><p className="flex items-center gap-2"><Check className="size-4 rounded-full bg-primary p-0.5 text-primary-foreground" /> Definir el objetivo</p><p className="flex items-center gap-2"><Check className="size-4 rounded-full bg-primary p-0.5 text-primary-foreground" /> Elegir el stack</p><p className="flex items-center gap-2 text-muted-foreground"><span className="size-4 rounded-full border border-border" /> Dibujar el primer flujo</p></div></div></div><div className="absolute -bottom-4 right-5 rotate-3 rounded-2xl bg-pastel-peach px-5 py-3 text-sm font-semibold shadow-lg sm:-right-5">Todo en su lugar ✨</div></div>
+      </section>
+      <section className="bg-card py-20"><div className="mx-auto max-w-7xl px-5 sm:px-8"><div className="mb-10 max-w-2xl"><p className="text-sm font-semibold uppercase tracking-widest text-primary">Cómo crecer con Semilla</p><h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">De «se me ocurrió» a «lo hicimos».</h2><p className="mt-4 text-muted-foreground">Un camino para que cada idea encuentre su forma, a tu ritmo.</p></div><div className="grid gap-5 md:grid-cols-3">{steps.map((step) => <Card key={step.number} className="border-0 bg-background shadow-none"><CardHeader className="gap-5"><div className={`flex size-12 items-center justify-center rounded-2xl ${step.color}`}><step.icon className="size-6" aria-hidden="true" /></div><span className="text-xs font-semibold tracking-widest text-primary">PASO {step.number}</span><CardTitle className="text-xl font-semibold">{step.title}</CardTitle><CardDescription className="leading-relaxed">{step.copy}</CardDescription></CardHeader></Card>)}</div></div></section>
+    </main><footer className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-5 py-8 text-sm text-muted-foreground sm:px-8"><Brand /><span>Ideas con espacio para crecer.</span></footer>
+  </div>;
 }

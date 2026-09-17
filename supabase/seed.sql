@@ -1,0 +1,1 @@
+-- Add development-only seed data here when the first product features are implemented.

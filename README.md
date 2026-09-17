@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Semilla
 
-## Getting Started
+Semilla es un espacio compartido para transformar ideas en proyectos de software. Esta entrega implementa la etapa **0 · Fundaciones** del roadmap: base técnica, sistema visual, esquema inicial, autenticación y CI. El CRUD de ideas y proyectos, tareas, diagramas y colaboración se desarrolla en las etapas siguientes.
 
-First, run the development server:
+## Stack
+
+- Next.js 16 (App Router), React 19, TypeScript y Tailwind CSS 4.
+- shadcn/ui (base-nova) para la interfaz, con Poppins y la paleta del prototipo.
+- Supabase Auth y PostgreSQL con Row Level Security (RLS).
+- Vitest para las pruebas base y GitHub Actions para CI.
+
+## Ejecutar la aplicación
+
+Requiere Node.js 22 y pnpm 11.19.0.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+Copy-Item .env.example .env.local
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Abre `http://localhost:3000`. La página principal funciona sin Supabase. El registro y el panel muestran un estado de configuración hasta que se agreguen las variables públicas.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+En `.env.local`, configura:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```text
+NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+```
 
-## Learn More
+Usa la **clave publicable** (o la anon key si tu proyecto aún la utiliza). Nunca pongas una service role key en variables `NEXT_PUBLIC_` ni la subas a Git. `.env.local` está ignorado.
 
-To learn more about Next.js, take a look at the following resources:
+## Preparar Supabase
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Crea un proyecto de Supabase y copia su URL y clave publicable a `.env.local`.
+2. En Auth → URL Configuration, configura la URL de desarrollo y agrega `http://localhost:3000/auth/confirm` como redirect permitido. Agrega la URL correspondiente del despliegue cuando exista.
+3. Revisa `supabase/migrations/20260917000100_foundations.sql`. Aplica la migración con Supabase CLI (`pnpm exec supabase login`, `pnpm exec supabase link --project-ref <project-ref>`, `pnpm db:push`) o desde el SQL Editor del proyecto. El CLI solicitará la contraseña de la base si hace falta.
+4. Para pruebas locales de la base necesitas Docker: `pnpm db:start` y `pnpm db:reset`. No se aplicó la migración a ninguna base remota en esta entrega porque faltan las credenciales del proyecto.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+El registro crea automáticamente un perfil y un espacio personal mediante triggers. Las tablas `profiles`, `workspaces`, `workspace_memberships`, `ideas` y `projects` tienen RLS. Solo los miembros leen un espacio; los roles owner/admin/editor pueden crear y editar ideas y proyectos. La gestión de invitaciones y membresías se incorporará con RPC auditadas en la etapa correspondiente.
 
-## Deploy on Vercel
+## Comprobaciones
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+GitHub Actions ejecuta esas cuatro comprobaciones en cada push y pull request.
+
+## Estructura
+
+- `src/app`: páginas pública, registro, inicio de sesión, confirmación y panel.
+- `src/components/ui`: componentes shadcn/ui generados con CLI.
+- `src/lib/supabase` y `src/proxy.ts`: clientes SSR y renovación de sesión.
+- `supabase/migrations`: esquema PostgreSQL y políticas RLS versionadas.
+- `.github/workflows/ci.yml`: comprobaciones de integración continua.
+
+## Próxima etapa
+
+Captura de ideas, conversión a proyecto y primeros flujos de colaboración. El panel actual enseña los contadores reales cuando Supabase está conectado y mantiene deshabilitadas las acciones aún no implementadas.
