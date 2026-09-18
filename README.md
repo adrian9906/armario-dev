@@ -1,18 +1,23 @@
 # Armario Dev
 
-Espacio compartido para transformar ideas en proyectos de software. Esta entrega cubre la etapa **0 · Fundaciones**: Next.js, shadcn/ui, autenticación con Clerk, esquema PostgreSQL en Supabase, RLS, pruebas base y CI.
+Un taller compartido para guardar ideas de software y hacerlas crecer. La entrega actual cubre **0 · Fundaciones** y **1 · Espacios e ideas** del roadmap.
 
-## Tecnologías y estructura
+## Stack
 
-- Next.js 16, React 19, TypeScript y Tailwind CSS 4.
-- shadcn/ui con Poppins y tema pastel; los formularios de Clerk usan el tema shadcn y textos en español.
-- Clerk para cuentas y sesiones; Supabase para PostgreSQL y Data API.
-- `src/proxy.ts`: middleware de Clerk.
-- `src/lib/supabase/server.ts`: cliente Supabase que transmite el token de Clerk.
-- `supabase/migrations/20260917000100_foundations.sql`: esquema y políticas RLS.
-- `.github/workflows/ci.yml`: lint, tipos, pruebas y build.
+- Next.js 16, React 19, TypeScript, Tailwind CSS 4 y shadcn/ui.
+- Clerk para cuentas, sesiones y correo de invitación.
+- Supabase PostgreSQL para espacios, roles, ideas e invitaciones. El cliente de datos usa el JWT de Clerk y políticas RLS.
+- Interfaz en español con Poppins y tarjetas pastel.
 
-## Ejecutar
+## Funciones de la fase 1
+
+- Espacio personal privado al iniciar sesión; creación de espacios adicionales y cambio de espacio.
+- Cuatro roles: propietario, administrador, editor y lector. Propietario y administrador gestionan personas; editor crea y modifica ideas; lector consulta.
+- Invitación por correo con rol, expiración de siete días y revocación. La aceptación exige iniciar sesión con el correo verificado que recibió la invitación. Una invitación no concede acceso hasta aceptarse.
+- Creación, edición, búsqueda por título/notas/etiquetas, filtros y archivo recuperable de ideas. La búsqueda muestra hasta 200 resultados por consulta.
+- La sección de proyectos se desarrolla en la fase 2.
+
+## Preparar el entorno
 
 Requiere Node.js 22 y pnpm 11.19.0.
 
@@ -21,24 +26,17 @@ pnpm install
 pnpm dev
 ```
 
-Las claves de desarrollo de Clerk están en `.env.local`; la URL y la clave publicable de Supabase están en `.env`. Ambos archivos están ignorados por Git. Para otra instalación, usa `.env.example` como guía y obtén claves propias. Nunca coloques `CLERK_SECRET_KEY` ni una clave de servicio de Supabase en variables `NEXT_PUBLIC_`.
+Usa `.env.example` como guía. Las claves locales de Clerk y Supabase están en `.env` o `.env.local`, ignorados por Git. `SUPABASE_SERVICE_ROLE_KEY` es **solo de servidor** y se usa exclusivamente en los flujos de invitación y gestión de roles. Nunca la publiques con el prefijo `NEXT_PUBLIC_`. En otra instalación debes configurarla en el servidor de despliegue. Define `NEXT_PUBLIC_APP_URL` con la URL pública para que los correos de Clerk lleven al destino correcto.
 
-## Conectar Clerk con Supabase
+## Clerk y Supabase
 
-1. El proyecto `armario-dev` está vinculado a la instancia de desarrollo de Clerk. Sus tokens de sesión ya incluyen `role: authenticated`.
-2. Clerk ya está registrado como proveedor externo en el [proyecto Supabase](https://supabase.com/dashboard/project/bzjvactaprvxpksazjka), con el dominio `relieved-dragon-405.clerk.accounts.dev`. Supabase confirmó que resolvió las claves públicas de la instancia. Para otras instalaciones, agrégalo en **Autenticación → Métodos de inicio de sesión / Proveedores → Autenticación de terceros**. Esta configuración remota se gestiona por separado de `supabase config push`.
-3. La migración `20260917000100_foundations.sql` ya está aplicada al proyecto Supabase `bzjvactaprvxpksazjka`. Para otras instalaciones, usa `supabase login`, `supabase link --project-ref <project-ref>` y `supabase db push`.
-4. Inicia sesión en la app. El panel llama a `ensure_personal_workspace`: crea el perfil y el espacio personal del usuario de Clerk si aún no existen.
+El proyecto local está vinculado a la instancia de desarrollo de Clerk. Sus tokens incluyen `role: authenticated`; el proyecto Supabase `bzjvactaprvxpksazjka` registra el dominio `relieved-dragon-405.clerk.accounts.dev` como proveedor externo. En otro entorno, configura la integración nativa de Clerk con Supabase y registra el dominio de la nueva instancia.
 
-Para una base local con Docker, `supabase/config.toml` ya contiene el dominio de la instancia de desarrollo. Cambia el dominio si usas otra instancia, y ejecuta `pnpm db:start`/`pnpm db:reset`.
+Las migraciones están en `supabase/migrations`. La primera crea perfiles, espacios, roles, ideas y proyectos. La segunda añade invitaciones, gestión de miembros y búsqueda. Para instalar en otro proyecto, enlázalo con `supabase link --project-ref <ref>` y aplica `pnpm db:push`.
 
-## Seguridad y alcance
+La clave de servicio permite a las acciones del servidor crear y aceptar invitaciones en transacciones. Las funciones de base de datos correspondientes solo conceden `EXECUTE` a `service_role`, y vuelven a comprobar el rol, el correo verificado, el estado y el vencimiento. El resto de lecturas y escrituras usa la clave publicable y RLS.
 
-Las tablas `profiles`, `workspaces`, `workspace_memberships`, `ideas` y `projects` usan RLS. Los IDs de usuario son los `sub` de los JWT verificados de Clerk. Solo los miembros leen su espacio; owner/admin/editor pueden crear y editar ideas y proyectos. Las invitaciones y la gestión de membresías vendrán en etapas posteriores.
-
-El panel muestra contadores reales cuando la integración remota de Clerk está activa. Las acciones de ideas y proyectos siguen deshabilitadas hasta la próxima etapa. El esquema anterior de la app no llegó a aplicarse al proyecto remoto; si ya se crearon cuentas con Supabase Auth, habrá que migrarlas a Clerk por separado.
-
-## Verificación
+## Comprobaciones
 
 ```bash
 pnpm lint
@@ -47,4 +45,4 @@ pnpm test
 pnpm build
 ```
 
-GitHub Actions ejecuta estas comprobaciones en push y pull request.
+GitHub Actions ejecuta estas comprobaciones en push y pull request. Para probar el flujo completo de invitación hacen falta dos cuentas de Clerk con correos distintos.
