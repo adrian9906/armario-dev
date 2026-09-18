@@ -103,7 +103,7 @@ export async function updateIdea(_state: FormState, data: FormData): Promise<For
   if (!validId(ideaId) || !(["owner", "admin", "editor"] as (Role | null)[]).includes(await roleFor(workspaceId, userId)))
     return { error: "No tienes permiso para editar esta idea." };
   const { data: updated, error } = await createClient().from("ideas")
-    .update(input).eq("id", ideaId).eq("workspace_id", workspaceId).select("id").maybeSingle();
+    .update(input).eq("id", ideaId).eq("workspace_id", workspaceId).neq("status", "converted").select("id").maybeSingle();
   if (error || !updated) return { error: "No se pudo actualizar la idea." };
   revalidatePath("/dashboard");
   revalidatePath(`/ideas/${ideaId}`);
@@ -119,7 +119,7 @@ export async function setIdeaArchived(data: FormData) {
       || !(["owner", "admin", "editor"] as (Role | null)[]).includes(await roleFor(workspaceId, userId)))
     throw new Error("No tienes permiso para cambiar esta idea.");
   const { data: updated, error } = await createClient().from("ideas")
-    .update({ status: nextStatus }).eq("id", ideaId).eq("workspace_id", workspaceId)
+    .update({ status: nextStatus }).eq("id", ideaId).eq("workspace_id", workspaceId).neq("status", "converted")
     .select("id").maybeSingle();
   if (error || !updated) throw new Error("No se pudo cambiar el estado de la idea.");
   revalidatePath("/dashboard");

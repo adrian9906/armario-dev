@@ -3,11 +3,11 @@ import { PanelsTopLeft } from "lucide-react";
 
 export function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <Link href="/" className="inline-flex items-center gap-3 font-semibold tracking-tight text-foreground">
-      <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground" aria-hidden="true">
-        <PanelsTopLeft className="size-5" />
+    <Link href="/" className="inline-flex items-center gap-3 font-heading font-bold tracking-[-0.04em] text-foreground transition-opacity hover:opacity-80">
+      <span className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-[0_5px_14px_color-mix(in_srgb,var(--primary)_20%,transparent)]" aria-hidden="true">
+        <PanelsTopLeft className="size-5" strokeWidth={1.8} />
       </span>
-      {!compact && <span className="text-xl sm:text-2xl">Armario <span className="text-primary">Dev</span></span>}
+      {!compact && <span className="text-[1.35rem] sm:text-[1.5rem]">Armario <span className="text-primary">Dev</span></span>}
     </Link>
   );
 }
