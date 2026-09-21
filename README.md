@@ -1,13 +1,13 @@
 # Armario Dev
 
-Un taller compartido para guardar ideas de software y hacerlas crecer. La entrega actual cubre **0 · Fundaciones**, **1 · Espacios e ideas** y **2 · Proyecto ejecutable** del roadmap.
+Un taller compartido para guardar ideas de software y hacerlas crecer. La entrega actual cubre **0 · Fundaciones**, **1 · Espacios e ideas**, **2 · Proyecto ejecutable** y la primera entrega de **3 · Documentación** del roadmap.
 
 ## Stack
 
 - Next.js 16, React 19, TypeScript, Tailwind CSS 4 y shadcn/ui.
 - Clerk para cuentas, sesiones y correo de invitación.
 - Supabase PostgreSQL para espacios, roles, ideas, proyectos, requisitos y tareas. El cliente de datos usa el JWT de Clerk y políticas RLS.
-- Interfaz en español con Poppins y tarjetas pastel.
+- Interfaz en español con Instrument Sans, Manrope y tarjetas pastel.
 
 ## Funciones de la fase 1
 
@@ -24,6 +24,14 @@ Un taller compartido para guardar ideas de software y hacerlas crecer. La entreg
 - Tareas con responsable del espacio, prioridad, rango de fechas, estados, orden, archivo, checklist, comentarios y vínculo a requisitos. El checklist inicial se guarda en la misma transacción que la tarea y sus pasos se pueden marcar o desmarcar después. Lista y tablero con cambios de estado.
 - Los roles del espacio se aplican también a los proyectos: lectores consultan; propietarios, administradores y editores modifican. Las relaciones de base de datos impiden vincular registros de proyectos o espacios diferentes.
 
+## Funciones de la fase 3
+
+- Stack tecnológico por categoría y estado: candidata, elegida o descartada, con versión y motivo.
+- Decisiones de arquitectura en formato ADR con contexto, elección, consecuencias, estado, autor y fecha.
+- Diagramas editables con Mermaid y plantillas de flujo, contexto C4, contenedores y modelo de datos, además de vista previa y archivo recuperable.
+- Exportación Markdown del objetivo, stack, ADR, diagramas, requisitos y tareas del proyecto.
+- Lectura para todos los miembros del espacio y escritura para propietarios, administradores y editores, validada en acciones del servidor y políticas RLS.
+
 ## Preparar el entorno
 
 Requiere Node.js 22 y pnpm 11.19.0.
@@ -39,7 +47,7 @@ Usa `.env.example` como guía. Las claves locales de Clerk y Supabase están en 
 
 El proyecto local está vinculado a la instancia de desarrollo de Clerk. Sus tokens incluyen `role: authenticated`; el proyecto Supabase `bzjvactaprvxpksazjka` registra el dominio `relieved-dragon-405.clerk.accounts.dev` como proveedor externo. En otro entorno, configura la integración nativa de Clerk con Supabase y registra el dominio de la nueva instancia.
 
-Las migraciones están en `supabase/migrations`. Las primeras cuatro cubren fundaciones, espacios e ideas, el proyecto ejecutable y el orden de requisitos. La quinta añade la fecha de inicio de tareas; la sexta permite crear una tarea con su checklist inicial en una transacción. Todas están aplicadas al proyecto enlazado. Para instalar en otro proyecto, enlázalo con `supabase link --project-ref <ref>` y aplica `pnpm db:push`.
+Las migraciones están en `supabase/migrations`. Las primeras cuatro cubren fundaciones, espacios e ideas, el proyecto ejecutable y el orden de requisitos. La quinta añade la fecha de inicio de tareas; la sexta permite crear una tarea con su checklist inicial en una transacción; la séptima añade stack, ADR y diagramas. Todas están aplicadas al proyecto enlazado. Para instalar en otro proyecto, enlázalo con `supabase link --project-ref <ref>` y aplica `pnpm db:push`.
 
 La clave de servicio permite a las acciones del servidor crear y aceptar invitaciones en transacciones. Las funciones de base de datos correspondientes solo conceden `EXECUTE` a `service_role`, y vuelven a comprobar el rol, el correo verificado, el estado y el vencimiento. El resto de lecturas y escrituras usa la clave publicable y RLS.
 

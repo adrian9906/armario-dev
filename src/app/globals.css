@@ -126,6 +126,20 @@
 [data-slot="card"]:has(a:hover) {
   box-shadow: 0 6px 16px rgb(51 51 51 / 0.045), 0 18px 38px rgb(51 51 51 / 0.05);
 }
+[data-technology-catalog] {
+  scrollbar-color: var(--primary) var(--muted);
+  scrollbar-width: auto;
+}
+[data-technology-catalog]::-webkit-scrollbar { width: 10px; }
+[data-technology-catalog]::-webkit-scrollbar-track {
+  background: var(--muted);
+  border-radius: 999px;
+}
+[data-technology-catalog]::-webkit-scrollbar-thumb {
+  background: var(--primary);
+  border: 2px solid var(--muted);
+  border-radius: 999px;
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

@@ -14,7 +14,7 @@ export default function ErrorPage({ reset }: { error: Error & { digest?: string 
           <CardDescription>No pudimos cargar esta página. Puedes intentarlo otra vez.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Button onClick={reset}>Volver a intentar</Button>
+          <Button onClick={reset} pendingOnClick>Volver a intentar</Button>
         </CardContent>
       </Card>
     </main>

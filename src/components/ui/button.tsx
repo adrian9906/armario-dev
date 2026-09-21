@@ -1,6 +1,11 @@
+"use client"
+
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
+import { isValidElement, useEffect, useState, type ReactElement } from "react"
+import { useFormStatus } from "react-dom"
+import { Spinner } from "@/components/ui/spinner"
 
 const buttonVariants = cva(
   "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-[0.9375rem] font-semibold whitespace-nowrap transition-[background-color,border-color,box-shadow,transform] duration-200 outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -43,14 +48,54 @@ function Button({
   className,
   variant = "default",
   size = "default",
+  children,
+  disabled,
+  nativeButton,
+  onClick,
+  pendingOnClick = false,
+  render,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & { pendingOnClick?: boolean }) {
+  const { pending: formPending } = useFormStatus()
+  const [localPending, setLocalPending] = useState(false)
+  const renderElement = isValidElement(render) ? render as ReactElement<{ download?: unknown; href?: unknown; target?: unknown }> : null
+  const isNavigation = typeof renderElement?.props.href === "string"
+  const isDownload = renderElement?.props.download !== undefined
+  const pending = formPending || localPending
+
+  useEffect(() => {
+    if (!localPending) return
+    const timeout = window.setTimeout(() => setLocalPending(false), isDownload ? 1500 : 10000)
+    return () => window.clearTimeout(timeout)
+  }, [isDownload, localPending])
+
+  const handleClick: NonNullable<ButtonPrimitive.Props["onClick"]> = (event) => {
+    onClick?.(event)
+    if (event.defaultPrevented || disabled || pending || event.button !== 0
+      || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    const nativeGetForm = event.currentTarget.form?.method.toLowerCase() === "get"
+    const opensAnotherTab = renderElement?.props.target === "_blank"
+    if ((isNavigation && !opensAnotherTab) || nativeGetForm || pendingOnClick) setLocalPending(true)
+  }
+
   return (
     <ButtonPrimitive
       data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
+      data-pending={pending || undefined}
+      aria-busy={pending || undefined}
+      className={cn(
+        buttonVariants({ variant, size, className }),
+        "data-[pending]:cursor-wait data-[pending]:[&>svg:not([data-slot=spinner])]:hidden"
+      )}
+      disabled={disabled || pending}
+      nativeButton={nativeButton ?? !isNavigation}
+      onClick={handleClick}
+      render={render}
       {...props}
-    />
+    >
+      {pending && <Spinner data-icon="inline-start" />}
+      {children}
+    </ButtonPrimitive>
   )
 }
 
