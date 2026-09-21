@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { validTaskDates } from "@/lib/task-dates";
 import { moduleOptions, projectKinds, projectStages, requirementKinds, requirementPriorities, taskPriorities, taskStatuses } from "@/lib/project-model";
+import { getProjectAccess } from "@/lib/project-access";
 
 export type FormState = { error: string | null };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -23,12 +24,24 @@ async function actor() {
 
 async function editableProject(projectId: string, userId: string) {
   if (!uuid.test(projectId)) return null;
-  const db = createClient();
-  const { data: project, error } = await db.from("projects").select("id,workspace_id").eq("id", projectId).maybeSingle();
-  if (error || !project) return null;
-  const { data: membership } = await db.from("workspace_memberships").select("role")
-    .eq("workspace_id", project.workspace_id).eq("user_id", userId).maybeSingle();
-  return membership && ["owner", "admin", "editor"].includes(membership.role) ? project : null;
+  const access = await getProjectAccess(projectId, userId);
+  return access?.canEdit ? access.project : null;
+}
+
+async function commentableProject(projectId: string, userId: string) {
+  if (!uuid.test(projectId)) return null;
+  const access = await getProjectAccess(projectId, userId);
+  return access?.canComment ? access.project : null;
+}
+
+async function workableTask(projectId: string, taskId: string, userId: string) {
+  if (!uuid.test(projectId) || !uuid.test(taskId)) return null;
+  const access = await getProjectAccess(projectId, userId);
+  if (!access) return null;
+  const { data: task } = await access.db.from("tasks").select("id,assignee_id")
+    .eq("id", taskId).eq("project_id", projectId).maybeSingle();
+  return task && (access.canEdit || (access.role === "contributor" && task.assignee_id === userId))
+    ? access.project : null;
 }
 
 function modulesFrom(form: FormData) {
@@ -152,7 +165,7 @@ export async function setTaskStatus(form: FormData) {
   const projectId = read(form, "project_id");
   const taskId = read(form, "task_id");
   const status = read(form, "status");
-  const project = await editableProject(projectId, userId);
+  const project = await workableTask(projectId, taskId, userId);
   if (!project || !uuid.test(taskId) || ![...taskStatuses.map((item) => item.value), "archived"].includes(status))
     throw new Error("No tienes permiso para cambiar esta tarea.");
   const { data, error } = await createClient().from("tasks").update({ status })
@@ -261,7 +274,7 @@ export async function addChecklistItem(_state: FormState, form: FormData): Promi
   const projectId = read(form, "project_id");
   const taskId = read(form, "task_id");
   const content = read(form, "content");
-  const project = await editableProject(projectId, userId);
+  const project = await workableTask(projectId, taskId, userId);
   if (!project || !uuid.test(taskId)) return { error: "No tienes permiso para esta tarea." };
   if (!content || content.length > 300) return { error: "Escribe un paso de hasta 300 caracteres." };
   const db = createClient();
@@ -281,7 +294,7 @@ export async function toggleChecklistItem(form: FormData) {
   const projectId = read(form, "project_id");
   const taskId = read(form, "task_id");
   const itemId = read(form, "item_id");
-  const project = await editableProject(projectId, userId);
+  const project = await workableTask(projectId, taskId, userId);
   if (!project || !uuid.test(taskId) || !uuid.test(itemId)) throw new Error("No tienes permiso para este paso.");
   const db = createClient();
   const { data: item } = await db.from("checklist_items").select("id,completed_at")
@@ -327,7 +340,7 @@ export async function addComment(_state: FormState, form: FormData): Promise<For
   const targetId = read(form, "target_id");
   const targetType = read(form, "target_type");
   const content = read(form, "content");
-  const project = await editableProject(projectId, userId);
+  const project = await commentableProject(projectId, userId);
   if (!project || !uuid.test(targetId) || !["task", "requirement"].includes(targetType))
     return { error: "No tienes permiso para comentar aquí." };
   if (!content || content.length > 5000) return { error: "Escribe un comentario de hasta 5000 caracteres." };

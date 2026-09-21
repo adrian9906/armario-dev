@@ -10,6 +10,7 @@ import {
   technologyStatuses,
 } from "@/lib/documentation-model";
 import { createClient } from "@/lib/supabase/server";
+import { getProjectAccess } from "@/lib/project-access";
 
 export type DocumentationFormState = { error: string | null };
 
@@ -25,15 +26,8 @@ const documentationUrl = (projectId: string) => `/projects/${projectId}?view=doc
 async function editableProject(projectId: string) {
   const { userId } = await auth();
   if (!userId || !uuid.test(projectId)) return null;
-  const db = createClient();
-  const { data: project } = await db.from("projects").select("id,workspace_id")
-    .eq("id", projectId).maybeSingle();
-  if (!project) return null;
-  const { data: membership } = await db.from("workspace_memberships").select("role")
-    .eq("workspace_id", project.workspace_id).eq("user_id", userId).maybeSingle();
-  return membership && ["owner", "admin", "editor"].includes(membership.role)
-    ? { ...project, userId }
-    : null;
+  const access = await getProjectAccess(projectId, userId);
+  return access?.canEdit ? { ...access.project, userId } : null;
 }
 
 export async function saveTechnology(

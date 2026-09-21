@@ -1,6 +1,6 @@
 # Armario Dev
 
-Un taller compartido para guardar ideas de software y hacerlas crecer. La entrega actual cubre **0 · Fundaciones**, **1 · Espacios e ideas**, **2 · Proyecto ejecutable** y la primera entrega de **3 · Documentación** del roadmap.
+Un taller compartido para guardar ideas de software y hacerlas crecer. La entrega actual cubre **0 · Fundaciones**, **1 · Espacios e ideas**, **2 · Proyecto ejecutable**, **3 · Documentación**, **5.1 · Actividad y notificaciones** y **5.2 · Permisos por proyecto** del roadmap.
 
 ## Stack
 
@@ -22,7 +22,7 @@ Un taller compartido para guardar ideas de software y hacerlas crecer. La entreg
 - Definición de tipo, etapa, objetivo y módulos de frontend, backend, base de datos y autenticación. Los módulos se pueden cambiar mientras el proyecto crece.
 - Requisitos funcionales y no funcionales con prioridad, criterios de aceptación, comentarios, orden manual, archivo y cobertura calculada según tareas vinculadas.
 - Tareas con responsable del espacio, prioridad, rango de fechas, estados, orden, archivo, checklist, comentarios y vínculo a requisitos. El checklist inicial se guarda en la misma transacción que la tarea y sus pasos se pueden marcar o desmarcar después. Lista y tablero con cambios de estado.
-- Los roles del espacio se aplican también a los proyectos: lectores consultan; propietarios, administradores y editores modifican. Las relaciones de base de datos impiden vincular registros de proyectos o espacios diferentes.
+- Las relaciones de base de datos impiden vincular registros de proyectos o espacios diferentes.
 
 ## Funciones de la fase 3
 
@@ -30,7 +30,15 @@ Un taller compartido para guardar ideas de software y hacerlas crecer. La entreg
 - Decisiones de arquitectura en formato ADR con contexto, elección, consecuencias, estado, autor y fecha.
 - Diagramas editables con Mermaid y plantillas de flujo, contexto C4, contenedores y modelo de datos, además de vista previa y archivo recuperable.
 - Exportación Markdown del objetivo, stack, ADR, diagramas, requisitos y tareas del proyecto.
-- Lectura para todos los miembros del espacio y escritura para propietarios, administradores y editores, validada en acciones del servidor y políticas RLS.
+- Lectura y escritura según el acceso efectivo del proyecto, validadas en acciones del servidor y políticas RLS.
+
+## Funciones de las fases 5.1 y 5.2
+
+- Crónica de actividad del espacio con autor, acción, elemento y fecha. Los eventos de proyectos restringidos solo aparecen a quienes pueden abrirlos.
+- Bandeja privada de notificaciones para asignaciones, comentarios y acceso a proyectos, con contador de pendientes, acciones para marcar como leídas y preferencias por categoría.
+- Visibilidad por proyecto: todo el espacio, privado o personas elegidas. Los propietarios y administradores del espacio conservan acceso de gestión.
+- Roles por proyecto: administrador, editor, colaborador y lector. El colaborador comenta y completa el checklist de sus tareas asignadas; el editor modifica el contenido; el administrador también gestiona personas y visibilidad.
+- Acciones del servidor, funciones con privilegios y políticas RLS usan la misma matriz de permisos. Una tarea solo puede asignarse a alguien que pueda abrir el proyecto.
 
 ## Preparar el entorno
 
@@ -47,7 +55,7 @@ Usa `.env.example` como guía. Las claves locales de Clerk y Supabase están en 
 
 El proyecto local está vinculado a la instancia de desarrollo de Clerk. Sus tokens incluyen `role: authenticated`; el proyecto Supabase `bzjvactaprvxpksazjka` registra el dominio `relieved-dragon-405.clerk.accounts.dev` como proveedor externo. En otro entorno, configura la integración nativa de Clerk con Supabase y registra el dominio de la nueva instancia.
 
-Las migraciones están en `supabase/migrations`. Las primeras cuatro cubren fundaciones, espacios e ideas, el proyecto ejecutable y el orden de requisitos. La quinta añade la fecha de inicio de tareas; la sexta permite crear una tarea con su checklist inicial en una transacción; la séptima añade stack, ADR y diagramas. Todas están aplicadas al proyecto enlazado. Para instalar en otro proyecto, enlázalo con `supabase link --project-ref <ref>` y aplica `pnpm db:push`.
+Las migraciones están en `supabase/migrations`. Las primeras cuatro cubren fundaciones, espacios e ideas, el proyecto ejecutable y el orden de requisitos. La quinta añade la fecha de inicio de tareas; la sexta permite crear una tarea con su checklist inicial en una transacción; la séptima añade stack, ADR y diagramas; la octava añade actividad, notificaciones y permisos por proyecto; la novena refuerza asignaciones y checklist. Todas están aplicadas al proyecto enlazado. Para instalar en otro proyecto, enlázalo con `supabase link --project-ref <ref>` y aplica `pnpm db:push`.
 
 La clave de servicio permite a las acciones del servidor crear y aceptar invitaciones en transacciones. Las funciones de base de datos correspondientes solo conceden `EXECUTE` a `service_role`, y vuelven a comprobar el rol, el correo verificado, el estado y el vencimiento. El resto de lecturas y escrituras usa la clave publicable y RLS.
 

@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { cookies } from "next/headers";
-import { ArrowRight, Archive, FolderKanban, Lightbulb, Plus, Users } from "lucide-react";
+import { Activity, ArrowRight, Archive, Bell, Check, FolderKanban, Lightbulb, MessageCircle, Plus, UserRoundPlus, Users } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { Brand } from "@/components/brand";
 import { IdeaFiltersForm } from "@/components/idea-filters-form";
 import { MemberRoleForm } from "@/components/member-role-form";
 import { InviteMemberForm, RenameWorkspaceForm } from "@/components/phase-one-forms";
+import { NotificationPreferencesForm } from "@/components/notification-preferences-form";
 import { revokeInvitation } from "./actions";
+import { markAllNotificationsRead, markNotificationRead } from "@/app/notification-actions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,11 +24,16 @@ type Idea = { id: string; title: string; description: string; kind: string | nul
 type Project = { id: string; title: string; objective: string | null; kind: string; stage: string; created_at: string };
 type Member = { user_id: string; role: string };
 type Invitation = { id: string; email: string; role: string; expires_at: string };
+type ActivityEvent = { id: string; actor_id: string | null; action: string; entity_type: string; metadata: { label?: string; status?: string; previous_status?: string; role?: string }; created_at: string };
+type Notification = { id: string; type: string; title: string; body: string; href: string; read_at: string | null; created_at: string };
 const kindNames: Record<string, string> = { web: "Web", mobile: "Móvil", frontend: "Frontend", backend: "Backend", mixed: "Frontend y backend", other: "Otro", undecided: "Por definir" };
 const roleNames: Record<string, string> = { owner: "Propietario", admin: "Administrador", editor: "Editor", viewer: "Lector" };
 const stageNames: Record<string, string> = { definition: "Definición", planning: "Planificación", development: "Desarrollo", published: "Publicado", archived: "Archivado" };
 const colors = ["bg-pastel-lavender", "bg-pastel-sky", "bg-pastel-peach", "bg-pastel-mint"];
 const route = (id: string, view: string) => `/dashboard?workspace=${id}&view=${view}`;
+const actionNames: Record<string, string> = { created: "creó", updated: "actualizó", status_changed: "cambió el estado de", deleted: "eliminó", access_changed: "cambió el acceso de" };
+const entityNames: Record<string, string> = { idea: "la idea", project: "el proyecto", task: "la tarea", requirement: "el requisito", comment: "un comentario", technology: "la tecnología", decision: "la decisión", diagram: "el diagrama", project_member: "una persona del proyecto" };
+const relativeDate = (value: string) => new Intl.DateTimeFormat("es", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 
 export default async function DashboardPage({ searchParams }: { searchParams: Params }) {
   const { userId } = await auth.protect();
@@ -48,27 +55,35 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
   const role = rolesResponse.data?.find((item) => item.workspace_id === space.id)?.role ?? "viewer";
   const canEdit = ["owner", "admin", "editor"].includes(role);
   const canManage = ["owner", "admin"].includes(role);
-  const view = ["overview", "ideas", "projects", "team"].includes(params.view ?? "") ? params.view! : "overview";
+  const view = ["overview", "ideas", "projects", "activity", "notifications", "team"].includes(params.view ?? "") ? params.view! : "overview";
   const sidebarOpen = (await cookies()).get("sidebar_state")?.value !== "false";
   const status = ["active", "archived", "all"].includes(params.status ?? "") ? params.status! : "active";
   const kind = Object.keys(kindNames).includes(params.kind ?? "") ? params.kind! : "";
   const query = (params.q ?? "").trim().slice(0, 120);
-  const [ideaResponse, ideaCount, projectResponse, memberResponse, inviteResponse] = await Promise.all([
+  const [ideaResponse, ideaCount, projectResponse, memberResponse, inviteResponse, activityResponse, notificationsResponse, preferencesResponse] = await Promise.all([
     db.rpc("search_workspace_ideas", { target_workspace_id: space.id, search_term: query, filter_status: status, filter_kind: kind }),
     db.from("ideas").select("id", { count: "exact", head: true }).eq("workspace_id", space.id).eq("status", "active"),
     db.from("projects").select("id,title,objective,kind,stage,created_at").eq("workspace_id", space.id).order("created_at", { ascending: false }),
     db.from("workspace_memberships").select("user_id,role").eq("workspace_id", space.id),
     canManage ? db.from("workspace_invitations").select("id,email,role,expires_at").eq("workspace_id", space.id).eq("status", "pending").order("created_at", { ascending: false }) : Promise.resolve({ data: [], error: null }),
+    db.from("activity_events").select("id,actor_id,action,entity_type,metadata,created_at").eq("workspace_id", space.id).order("created_at", { ascending: false }).limit(100),
+    db.from("notifications").select("id,type,title,body,href,read_at,created_at").eq("workspace_id", space.id).eq("recipient_id", userId).order("created_at", { ascending: false }).limit(100),
+    db.from("notification_preferences").select("assignments,comments,project_access").eq("workspace_id", space.id).eq("user_id", userId).maybeSingle(),
   ]);
   const ideas = (ideaResponse.data ?? []) as Idea[];
   const projects = (projectResponse.data ?? []) as Project[];
   const members = (memberResponse.data ?? []) as Member[];
   const invites = (inviteResponse.data ?? []) as Invitation[];
-  const profileResponse = view === "team" && members.length ? await db.from("profiles").select("id,display_name").in("id", members.map((member) => member.user_id)) : { data: [], error: null };
+  const activity = (activityResponse.data ?? []) as ActivityEvent[];
+  const notifications = (notificationsResponse.data ?? []) as Notification[];
+  const profileIds = Array.from(new Set([...members.map((member) => member.user_id), ...activity.flatMap((event) => event.actor_id ? [event.actor_id] : [])]));
+  const profileResponse = (view === "team" || view === "activity") && profileIds.length ? await db.from("profiles").select("id,display_name").in("id", profileIds) : { data: [], error: null };
   const profiles = new Map((profileResponse.data ?? []).map((profile) => [profile.id, profile.display_name]));
-  const dataError = ideaResponse.error || ideaCount.error || projectResponse.error || memberResponse.error || inviteResponse.error || profileResponse.error;
+  const preferences = preferencesResponse.data ?? { assignments: true, comments: true, project_access: true };
+  const unreadNotifications = notifications.filter((item) => !item.read_at).length;
+  const dataError = ideaResponse.error || ideaCount.error || projectResponse.error || memberResponse.error || inviteResponse.error || activityResponse.error || notificationsResponse.error || preferencesResponse.error || profileResponse.error;
 
-  return <AppShell spaces={spaces} activeSpace={space} activeSection={view as "overview" | "ideas" | "projects" | "team"} role={role} userName={name} defaultOpen={sidebarOpen}>
+  return <AppShell spaces={spaces} activeSpace={space} activeSection={view as "overview" | "ideas" | "projects" | "activity" | "notifications" | "team"} role={role} userName={name} defaultOpen={sidebarOpen} unreadNotifications={unreadNotifications}>
       <main className="mx-auto w-full max-w-7xl px-5 py-10 sm:px-8 lg:px-10 lg:py-12">
         {dataError && <Alert variant="destructive" className="mb-7"><AlertTitle>No se pudieron cargar todos los datos</AlertTitle><AlertDescription>Actualiza la página para volver a intentarlo.</AlertDescription></Alert>}
         {view === "overview" && <>
@@ -85,6 +100,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
         {view === "projects" && <>
           <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><Badge className="mb-4 border-0 bg-pastel-mint px-4 py-2 text-foreground">Del boceto a la acción</Badge><h1 className="text-[2.35rem] leading-[1.12] font-bold tracking-[-0.045em] sm:text-[3rem]">Proyectos de {space.name}</h1><p className="mt-3 text-base leading-relaxed text-muted-foreground">Define el trabajo, sigue los requisitos y avanza tarea a tarea.</p></div>{canEdit && <Button render={<Link href={route(space.id, "ideas")} />}><Plus aria-hidden /> Elegir una idea</Button>}</div>
           {projects.length ? <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">{projects.map((project, index) => <Link key={project.id} href={`/projects/${project.id}`} className="group block focus-visible:rounded-3xl focus-visible:outline-2 focus-visible:outline-primary"><Card className="h-full border-0 transition-transform group-hover:-translate-y-0.5"><CardHeader><div className={`mb-4 flex size-11 items-center justify-center rounded-2xl ${colors[index % colors.length]}`}><FolderKanban className="size-5" aria-hidden /></div><CardTitle className="line-clamp-2 text-xl">{project.title}</CardTitle><CardDescription className="line-clamp-3 min-h-15 leading-relaxed">{project.objective || "Abre el proyecto para definir su objetivo."}</CardDescription></CardHeader><CardContent><div className="flex flex-wrap gap-2"><Badge variant="secondary">{stageNames[project.stage] ?? project.stage}</Badge><Badge variant="outline">{kindNames[project.kind] ?? project.kind}</Badge></div><p className="mt-4 text-xs text-muted-foreground">Desde {new Intl.DateTimeFormat("es", { day: "numeric", month: "short", year: "numeric" }).format(new Date(project.created_at))}</p></CardContent></Card></Link>)}</div> : <Card className="border-dashed"><CardContent className="flex flex-col items-center py-14 text-center"><div className="mb-5 flex size-14 items-center justify-center rounded-2xl bg-pastel-mint"><FolderKanban aria-hidden /></div><h2 className="text-lg font-semibold">Todavía no hay proyectos</h2><p className="mt-2 max-w-md text-sm text-muted-foreground">Abre una idea activa y conviértela en proyecto para empezar a planificar.</p>{canEdit && <Button className="mt-6" render={<Link href={route(space.id, "ideas")} />}>Explorar ideas</Button>}</CardContent></Card>}
+        </>}
+        {view === "activity" && <>
+          <div className="mb-8"><Badge className="mb-4 border-0 bg-pastel-lavender px-4 py-2 text-foreground">Crónica del espacio</Badge><h1 className="text-[2.35rem] leading-[1.12] font-bold tracking-[-0.045em] sm:text-[3rem]">Actividad reciente</h1><p className="mt-3 text-base text-muted-foreground">Cambios realizados en ideas y proyectos que puedes ver.</p></div>
+          <Card><CardHeader><div className="flex size-12 items-center justify-center rounded-2xl bg-pastel-sky"><Activity aria-hidden /></div><CardTitle>Últimos movimientos</CardTitle><CardDescription>Hasta 100 eventos, del más reciente al más antiguo.</CardDescription></CardHeader><CardContent>{activity.length ? <div className="relative ml-2 border-l border-border pl-6">{activity.map((event) => <article key={event.id} className="relative pb-7 last:pb-0"><span className="absolute -left-[1.9rem] top-1 flex size-4 rounded-full border-4 border-card bg-primary" /><p className="text-sm leading-6"><strong>{event.actor_id ? profiles.get(event.actor_id) || "Un miembro" : "El sistema"}</strong> {actionNames[event.action] ?? event.action} {entityNames[event.entity_type] ?? event.entity_type}{event.metadata.label ? <> <span className="font-medium">“{event.metadata.label}”</span></> : null}.</p><time className="mt-1 block text-xs text-muted-foreground" dateTime={event.created_at}>{relativeDate(event.created_at)}</time></article>)}</div> : <p className="py-8 text-center text-sm text-muted-foreground">La actividad aparecerá aquí cuando el equipo haga cambios.</p>}</CardContent></Card>
+        </>}
+        {view === "notifications" && <>
+          <div className="mb-8 flex flex-wrap items-end justify-between gap-4"><div><Badge className="mb-4 border-0 bg-pastel-peach px-4 py-2 text-foreground">Bandeja personal</Badge><h1 className="text-[2.35rem] leading-[1.12] font-bold tracking-[-0.045em] sm:text-[3rem]">Notificaciones</h1><p className="mt-3 text-base text-muted-foreground">Asignaciones, comentarios y nuevos accesos que requieren tu atención.</p></div>{unreadNotifications > 0 && <form action={markAllNotificationsRead}><input type="hidden" name="workspace_id" value={space.id} /><Button type="submit" variant="outline"><Check aria-hidden /> Marcar todas como leídas</Button></form>}</div>
+          <div className="grid gap-6 lg:grid-cols-[1.4fr_0.8fr]"><Card><CardHeader><CardTitle>{unreadNotifications ? `${unreadNotifications} sin leer` : "Todo al día"}</CardTitle><CardDescription>Las notificaciones son privadas para tu cuenta.</CardDescription></CardHeader><CardContent className="space-y-3">{notifications.map((notification) => { const Icon = notification.type === "assignment" ? Check : notification.type === "comment" ? MessageCircle : UserRoundPlus; return <article key={notification.id} className={`flex items-start gap-4 rounded-2xl border p-4 ${notification.read_at ? "border-border/60 bg-muted/25" : "border-primary/25 bg-pastel-sky/35"}`}><span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-card"><Icon className="size-4" aria-hidden /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div><h2 className="text-sm font-semibold">{notification.title}</h2><p className="mt-1 text-sm text-muted-foreground">{notification.body}</p></div><time className="text-xs text-muted-foreground" dateTime={notification.created_at}>{relativeDate(notification.created_at)}</time></div><div className="mt-3 flex gap-2">{notification.href && <Button size="sm" variant="outline" render={<Link href={notification.href} />}>Abrir</Button>}{!notification.read_at && <form action={markNotificationRead}><input type="hidden" name="notification_id" value={notification.id} /><Button size="sm" variant="ghost" type="submit">Marcar como leída</Button></form>}</div></div></article>; })}{!notifications.length && <div className="flex flex-col items-center py-12 text-center"><Bell className="mb-4 size-8 text-muted-foreground" aria-hidden /><p className="font-semibold">No tienes notificaciones</p><p className="mt-1 text-sm text-muted-foreground">Las nuevas asignaciones y conversaciones aparecerán aquí.</p></div>}</CardContent></Card><Card><CardHeader><CardTitle>Preferencias</CardTitle><CardDescription>Elige qué avisos quieres recibir dentro de Armario Dev.</CardDescription></CardHeader><CardContent><NotificationPreferencesForm workspaceId={space.id} preferences={preferences} /></CardContent></Card></div>
         </>}
         {view === "team" && <>
           <div className="mb-8"><Badge className="mb-4 border-0 bg-pastel-sky px-4 py-2 text-foreground">Personas y permisos</Badge><h1 className="text-[2.35rem] leading-[1.12] font-bold tracking-[-0.045em] sm:text-[3rem]">Equipo de {space.name}</h1><p className="mt-3 text-base leading-relaxed text-muted-foreground">Cada persona accede según su rol dentro de este espacio.</p></div>

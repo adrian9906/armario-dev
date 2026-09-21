@@ -5,6 +5,8 @@ import { UserButton } from "@clerk/nextjs";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
+  Activity,
+  Bell,
   BookOpen,
   Columns3,
   FolderKanban,
@@ -34,7 +36,7 @@ import {
 } from "@/components/ui/sidebar";
 
 type Space = { id: string; name: string; is_personal: boolean };
-type Section = "overview" | "ideas" | "projects" | "team";
+type Section = "overview" | "ideas" | "projects" | "activity" | "notifications" | "team";
 
 const roleNames: Record<string, string> = {
   owner: "Propietario",
@@ -47,6 +49,8 @@ const sectionNames: Record<Section, string> = {
   overview: "Vista general",
   ideas: "Ideas",
   projects: "Proyectos",
+  activity: "Actividad",
+  notifications: "Notificaciones",
   team: "Personas",
 };
 
@@ -62,6 +66,7 @@ export function AppShell({
   userName,
   project,
   headerLabel,
+  unreadNotifications = 0,
   defaultOpen = true,
 }: {
   children: React.ReactNode;
@@ -70,8 +75,9 @@ export function AppShell({
   activeSection: Section;
   role: string;
   userName: string;
-  project?: { id: string; title: string; canEdit?: boolean };
+  project?: { id: string; title: string; canEdit?: boolean; canManage?: boolean };
   headerLabel?: string;
+  unreadNotifications?: number;
   defaultOpen?: boolean;
 }) {
   const pathname = usePathname();
@@ -91,6 +97,7 @@ export function AppShell({
         { value: "board", label: "Tablero", icon: Columns3 },
         { value: "requirements", label: "Requisitos", icon: BookOpen },
         { value: "documentation", label: "Documentación", icon: FolderKanban },
+        { value: "people", label: "Personas", icon: Users },
         ...(project.canEdit ? [{ value: "settings", label: "Configuración", icon: Settings2 }] : []),
       ]
     : [];
@@ -138,6 +145,8 @@ export function AppShell({
                   <WorkspaceItem section="overview" label="Vista general" icon={Sparkles} active={activeSection} workspaceId={activeSpace.id} />
                   <WorkspaceItem section="ideas" label="Ideas" icon={Lightbulb} active={activeSection} workspaceId={activeSpace.id} />
                   <WorkspaceItem section="projects" label="Proyectos" icon={FolderKanban} active={activeSection} workspaceId={activeSpace.id} />
+                  <WorkspaceItem section="activity" label="Actividad" icon={Activity} active={activeSection} workspaceId={activeSpace.id} />
+                  <WorkspaceItem section="notifications" label={unreadNotifications ? `Notificaciones (${unreadNotifications})` : "Notificaciones"} icon={Bell} active={activeSection} workspaceId={activeSpace.id} />
                   <WorkspaceItem section="team" label="Personas" icon={Users} active={activeSection} workspaceId={activeSpace.id} />
                 </SidebarMenu>
               </SidebarGroupContent>
