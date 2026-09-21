@@ -1,17 +1,17 @@
 import Link from "next/link";
-import { UserButton } from "@clerk/nextjs";
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { ArrowRight, Archive, FolderKanban, Lightbulb, Plus, Sparkles, Users } from "lucide-react";
+import { cookies } from "next/headers";
+import { ArrowRight, Archive, FolderKanban, Lightbulb, Plus, Users } from "lucide-react";
+import { AppShell } from "@/components/app-shell";
 import { Brand } from "@/components/brand";
 import { IdeaFiltersForm } from "@/components/idea-filters-form";
 import { MemberRoleForm } from "@/components/member-role-form";
-import { CreateWorkspaceForm, InviteMemberForm, RenameWorkspaceForm } from "@/components/phase-one-forms";
+import { InviteMemberForm, RenameWorkspaceForm } from "@/components/phase-one-forms";
 import { revokeInvitation } from "./actions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { getSupabaseConfig } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
@@ -49,6 +49,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
   const canEdit = ["owner", "admin", "editor"].includes(role);
   const canManage = ["owner", "admin"].includes(role);
   const view = ["overview", "ideas", "projects", "team"].includes(params.view ?? "") ? params.view! : "overview";
+  const sidebarOpen = (await cookies()).get("sidebar_state")?.value !== "false";
   const status = ["active", "archived", "all"].includes(params.status ?? "") ? params.status! : "active";
   const kind = Object.keys(kindNames).includes(params.kind ?? "") ? params.kind! : "";
   const query = (params.q ?? "").trim().slice(0, 120);
@@ -67,24 +68,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
   const profiles = new Map((profileResponse.data ?? []).map((profile) => [profile.id, profile.display_name]));
   const dataError = ideaResponse.error || ideaCount.error || projectResponse.error || memberResponse.error || inviteResponse.error || profileResponse.error;
 
-  return <SidebarProvider>
-    <Sidebar variant="inset" collapsible="offcanvas">
-      <SidebarHeader className="border-b border-border/70 p-6"><Brand /></SidebarHeader>
-      <SidebarContent>
-        <SidebarGroup><SidebarGroupLabel>Espacios</SidebarGroupLabel><SidebarGroupContent><SidebarMenu>
-          {spaces.map((item) => <SidebarMenuItem key={item.id}><SidebarMenuButton isActive={item.id === space.id} render={<Link href={route(item.id, "overview")} />}><span className={`flex size-6 shrink-0 items-center justify-center rounded-lg ${item.is_personal ? "bg-pastel-mint" : "bg-pastel-lavender"}`}>{item.name[0]?.toUpperCase()}</span><span className="truncate">{item.name}</span></SidebarMenuButton></SidebarMenuItem>)}
-        </SidebarMenu><details className="mt-5 rounded-xl border border-border/70 bg-card p-4"><summary className="cursor-pointer text-sm font-semibold text-primary">Crear espacio</summary><div className="mt-4"><CreateWorkspaceForm /></div></details></SidebarGroupContent></SidebarGroup>
-        <SidebarGroup><SidebarGroupLabel>En {space.name}</SidebarGroupLabel><SidebarGroupContent><SidebarMenu>
-          <SidebarMenuItem><SidebarMenuButton isActive={view === "overview"} render={<Link href={route(space.id, "overview")} />}><Sparkles aria-hidden /> Vista general</SidebarMenuButton></SidebarMenuItem>
-          <SidebarMenuItem><SidebarMenuButton isActive={view === "ideas"} render={<Link href={route(space.id, "ideas")} />}><Lightbulb aria-hidden /> Ideas</SidebarMenuButton></SidebarMenuItem>
-          <SidebarMenuItem><SidebarMenuButton isActive={view === "projects"} render={<Link href={route(space.id, "projects")} />}><FolderKanban aria-hidden /> Proyectos</SidebarMenuButton></SidebarMenuItem>
-          <SidebarMenuItem><SidebarMenuButton isActive={view === "team"} render={<Link href={route(space.id, "team")} />}><Users aria-hidden /> Personas</SidebarMenuButton></SidebarMenuItem>
-        </SidebarMenu></SidebarGroupContent></SidebarGroup>
-      </SidebarContent>
-      <SidebarFooter className="flex flex-row items-center gap-3 border-t border-border/70 p-6"><UserButton /><div className="min-w-0"><p className="truncate text-[0.9375rem] font-semibold">{name}</p><p className="text-xs text-muted-foreground">{roleNames[role]}</p></div></SidebarFooter>
-    </Sidebar>
-    <SidebarInset className="min-h-screen bg-background">
-      <header className="flex h-20 items-center gap-3 border-b border-border/70 bg-card/70 px-5 sm:px-8 lg:px-10"><SidebarTrigger /><span className="truncate text-[0.9375rem] text-muted-foreground">{space.name} <span className="mx-1.5 text-border">/</span> <span className="font-semibold text-foreground">{view === "team" ? "Personas" : view === "ideas" ? "Ideas" : view === "projects" ? "Proyectos" : "Vista general"}</span></span></header>
+  return <AppShell spaces={spaces} activeSpace={space} activeSection={view as "overview" | "ideas" | "projects" | "team"} role={role} userName={name} defaultOpen={sidebarOpen}>
       <main className="mx-auto w-full max-w-7xl px-5 py-10 sm:px-8 lg:px-10 lg:py-12">
         {dataError && <Alert variant="destructive" className="mb-7"><AlertTitle>No se pudieron cargar todos los datos</AlertTitle><AlertDescription>Actualiza la página para volver a intentarlo.</AlertDescription></Alert>}
         {view === "overview" && <>
@@ -109,6 +93,5 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
           <div className="space-y-6">{canManage && <Card className="border-0 bg-pastel-mint/60"><CardHeader><div className="mb-2 flex size-11 items-center justify-center rounded-2xl bg-white"><Users aria-hidden /></div><CardTitle>Invitar a alguien</CardTitle><CardDescription>Le enviaremos un correo. Su acceso empieza cuando acepte con ese correo.</CardDescription></CardHeader><CardContent><InviteMemberForm workspaceId={space.id} /></CardContent></Card>}{canManage && <Card><CardHeader><CardTitle>Nombre del espacio</CardTitle></CardHeader><CardContent><RenameWorkspaceForm workspaceId={space.id} name={space.name} /></CardContent></Card>}</div></div>
         </>}
       </main>
-    </SidebarInset>
-  </SidebarProvider>;
+  </AppShell>;
 }

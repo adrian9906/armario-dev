@@ -3,7 +3,6 @@ import { auth } from "@clerk/nextjs/server";
 import { notFound } from "next/navigation";
 import { Archive, ArrowLeft, FolderKanban, Lightbulb, RotateCcw } from "lucide-react";
 import { setIdeaArchived } from "@/app/dashboard/actions";
-import { Brand } from "@/components/brand";
 import { IdeaForm } from "@/components/phase-one-forms";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,9 +28,8 @@ export default async function IdeaPage({ params }: { params: Promise<{ id: strin
   const canEdit = ["owner", "admin", "editor"].includes(membership.data.role);
   const converted = idea.status === "converted" || !!project.data;
 
-  return <main className="mx-auto min-h-screen max-w-4xl px-5 py-8 sm:px-8">
-    <Brand />
-    <Link href={`/dashboard?workspace=${idea.workspace_id}&view=ideas`} className="mt-9 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" aria-hidden /> Volver a {space.data.name}</Link>
+  return <main className="mx-auto w-full max-w-4xl px-5 py-10 sm:px-8 lg:py-12">
+    <Link href={`/dashboard?workspace=${idea.workspace_id}&view=ideas`} className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"><ArrowLeft className="size-4" aria-hidden /> Volver a {space.data.name}</Link>
     <div className="mt-10 flex flex-wrap items-start justify-between gap-4">
       <div><Badge className="mb-4 border-0 bg-pastel-lavender px-4 py-2 text-foreground">{converted ? "Convertida en proyecto" : idea.status === "archived" ? "Idea archivada" : "Idea en crecimiento"}</Badge><h1 className="text-[2.35rem] leading-[1.12] font-bold tracking-[-0.045em] sm:text-[3rem]">{idea.title}</h1><p className="mt-3 text-base leading-relaxed text-muted-foreground">Creada el {date(idea.created_at, "long")} · {space.data.name}</p></div>
       <div className="flex flex-wrap gap-2">
