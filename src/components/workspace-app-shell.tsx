@@ -39,7 +39,7 @@ export async function WorkspaceAppShell({
       activeSpace={activeSpace}
       activeSection={activeSection}
       role={membership.role}
-      userName={user?.firstName || user?.fullName || "Creador"}
+      userName={user?.fullName || user?.firstName || "Creador"}
       project={project}
       headerLabel={headerLabel}
       defaultOpen={cookieStore.get("sidebar_state")?.value !== "false"}

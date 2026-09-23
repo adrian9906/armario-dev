@@ -12,6 +12,7 @@ import {
   FolderKanban,
   Lightbulb,
   ListTodo,
+  KeyRound,
   Plus,
   Settings2,
   Sparkles,
@@ -60,6 +61,7 @@ const workspaceHref = (workspaceId: string, section: Section) =>
 export function AppShell({
   children,
   spaces,
+  pendingInvitations = [],
   activeSpace,
   activeSection,
   role,
@@ -71,6 +73,7 @@ export function AppShell({
 }: {
   children: React.ReactNode;
   spaces: Space[];
+  pendingInvitations?: { id: string; role: string; workspaceName: string }[];
   activeSpace: Space;
   activeSection: Section;
   role: string;
@@ -137,6 +140,28 @@ export function AppShell({
                 </details>
               </SidebarGroupContent>
             </SidebarGroup>
+
+            {pendingInvitations.length > 0 && <SidebarGroup>
+              <SidebarGroupLabel>Invitaciones</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {pendingInvitations.map((invitation) => (
+                    <SidebarMenuItem key={invitation.id}>
+                      <SidebarMenuButton
+                        tooltip={`Entrar a ${invitation.workspaceName}`}
+                        render={<Link href={`/invitaciones/aceptar?id=${invitation.id}`} />}
+                      >
+                        <KeyRound aria-hidden />
+                        <span className="min-w-0">
+                          <span className="block truncate">{invitation.workspaceName}</span>
+                          <span className="block truncate text-xs text-muted-foreground">Código pendiente · {roleNames[invitation.role]}</span>
+                        </span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>}
 
             <SidebarGroup>
               <SidebarGroupLabel>En {activeSpace.name}</SidebarGroupLabel>

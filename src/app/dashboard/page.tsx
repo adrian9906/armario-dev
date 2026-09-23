@@ -6,7 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { Brand } from "@/components/brand";
 import { IdeaFiltersForm } from "@/components/idea-filters-form";
 import { MemberRoleForm } from "@/components/member-role-form";
-import { InviteMemberForm, RenameWorkspaceForm } from "@/components/phase-one-forms";
+import { InviteMemberForm, RenameProfileForm, RenameWorkspaceForm } from "@/components/phase-one-forms";
 import { NotificationPreferencesForm } from "@/components/notification-preferences-form";
 import { revokeInvitation } from "./actions";
 import { markAllNotificationsRead, markNotificationRead } from "@/app/notification-actions";
@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSupabaseConfig } from "@/lib/supabase/env";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ type Idea = { id: string; title: string; description: string; kind: string | nul
 type Project = { id: string; title: string; objective: string | null; kind: string; stage: string; created_at: string };
 type Member = { user_id: string; role: string };
 type Invitation = { id: string; email: string; role: string; expires_at: string };
+type PendingInvitation = { id: string; role: string; workspaceId: string; workspaceName: string };
 type ActivityEvent = { id: string; actor_id: string | null; action: string; entity_type: string; metadata: { label?: string; status?: string; previous_status?: string; role?: string }; created_at: string };
 type Notification = { id: string; type: string; title: string; body: string; href: string; read_at: string | null; created_at: string };
 const kindNames: Record<string, string> = { web: "Web", mobile: "Móvil", frontend: "Frontend", backend: "Backend", mixed: "Frontend y backend", other: "Otro", undecided: "Por definir" };
@@ -38,11 +40,39 @@ const relativeDate = (value: string) => new Intl.DateTimeFormat("es", { day: "nu
 export default async function DashboardPage({ searchParams }: { searchParams: Params }) {
   const { userId } = await auth.protect();
   const user = await currentUser();
-  const name = user?.firstName || user?.fullName || "Creador";
+  const name = user?.fullName || user?.firstName || "Creador";
   const params = await searchParams;
   if (!getSupabaseConfig()) return <main className="mx-auto max-w-3xl p-8"><Brand /><Alert className="mt-8"><AlertTitle>Tu taller está casi listo</AlertTitle><AlertDescription>Revisa la URL y la clave publicable de Supabase en .env o .env.local.</AlertDescription></Alert></main>;
 
   const db = createClient();
+  const verifiedEmails = user?.emailAddresses
+    .filter((address) => address.verification?.status === "verified")
+    .map((address) => address.emailAddress.toLowerCase()) ?? [];
+  let pendingInvitations: PendingInvitation[] = [];
+  if (verifiedEmails.length) {
+    try {
+      const { data } = await createAdminClient().from("workspace_invitations")
+        .select("id,role,workspace_id,workspaces(name)")
+        .in("email", verifiedEmails)
+        .eq("status", "pending")
+        .gt("expires_at", new Date().toISOString())
+        .order("created_at", { ascending: false });
+      pendingInvitations = (data ?? []).map((invitation) => {
+        const relatedWorkspace = invitation.workspaces as { name?: string } | { name?: string }[] | null;
+        const workspaceName = Array.isArray(relatedWorkspace)
+          ? relatedWorkspace[0]?.name
+          : relatedWorkspace?.name;
+        return {
+          id: invitation.id,
+          role: invitation.role,
+          workspaceId: invitation.workspace_id,
+          workspaceName: workspaceName ?? "Espacio invitado",
+        };
+      });
+    } catch {
+      pendingInvitations = [];
+    }
+  }
   const setup = await db.rpc("ensure_personal_workspace", { chosen_name: name });
   if (setup.error) return <main className="mx-auto max-w-3xl p-8"><Brand /><Alert variant="destructive" className="mt-8"><AlertTitle>No se pudieron cargar los datos</AlertTitle><AlertDescription>Revisa la conexión entre Clerk y Supabase y actualiza la página.</AlertDescription></Alert></main>;
   const [spacesResponse, rolesResponse] = await Promise.all([
@@ -83,7 +113,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
   const unreadNotifications = notifications.filter((item) => !item.read_at).length;
   const dataError = ideaResponse.error || ideaCount.error || projectResponse.error || memberResponse.error || inviteResponse.error || activityResponse.error || notificationsResponse.error || preferencesResponse.error || profileResponse.error;
 
-  return <AppShell spaces={spaces} activeSpace={space} activeSection={view as "overview" | "ideas" | "projects" | "activity" | "notifications" | "team"} role={role} userName={name} defaultOpen={sidebarOpen} unreadNotifications={unreadNotifications}>
+  return <AppShell spaces={spaces} pendingInvitations={pendingInvitations} activeSpace={space} activeSection={view as "overview" | "ideas" | "projects" | "activity" | "notifications" | "team"} role={role} userName={name} defaultOpen={sidebarOpen} unreadNotifications={unreadNotifications}>
       <main className="mx-auto w-full max-w-7xl px-5 py-10 sm:px-8 lg:px-10 lg:py-12">
         {dataError && <Alert variant="destructive" className="mb-7"><AlertTitle>No se pudieron cargar todos los datos</AlertTitle><AlertDescription>Actualiza la página para volver a intentarlo.</AlertDescription></Alert>}
         {view === "overview" && <>
@@ -112,8 +142,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
         {view === "team" && <>
           <div className="mb-8"><Badge className="mb-4 border-0 bg-pastel-sky px-4 py-2 text-foreground">Personas y permisos</Badge><h1 className="text-[2.35rem] leading-[1.12] font-bold tracking-[-0.045em] sm:text-[3rem]">Equipo de {space.name}</h1><p className="mt-3 text-base leading-relaxed text-muted-foreground">Cada persona accede según su rol dentro de este espacio.</p></div>
           <div className="grid gap-6 lg:grid-cols-[1.3fr_1fr]"><div className="space-y-6"><Card><CardHeader><CardTitle>Miembros · {members.length}</CardTitle><CardDescription>Propietario, administradores, editores y lectores.</CardDescription></CardHeader><CardContent className="space-y-3">{members.map((member) => <div key={member.user_id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 p-4"><div className="flex items-center gap-3"><span className="flex size-10 items-center justify-center rounded-full bg-pastel-lavender text-sm font-semibold">{(profiles.get(member.user_id) || "?")[0]?.toUpperCase()}</span><div><p className="text-sm font-semibold">{profiles.get(member.user_id) || "Miembro"}{member.user_id === userId ? " (tú)" : ""}</p><p className="text-xs text-muted-foreground">{roleNames[member.role]}</p></div></div>{canManage && member.role !== "owner" && member.user_id !== userId && (role === "owner" || member.role !== "admin") && <MemberRoleForm workspaceId={space.id} userId={member.user_id} role={member.role} />}</div>)}</CardContent></Card>
-          {canManage && <Card><CardHeader><CardTitle>Invitaciones pendientes</CardTitle><CardDescription>Vencen a los siete días y solo dan acceso después de aceptarse.</CardDescription></CardHeader><CardContent>{invites.length ? <div className="space-y-3">{invites.map((invite) => <div key={invite.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 p-4"><div><p className="text-sm font-medium">{invite.email}</p><p className="text-xs text-muted-foreground">{roleNames[invite.role]} · vence {new Intl.DateTimeFormat("es", { day: "numeric", month: "short" }).format(new Date(invite.expires_at))}</p></div><form action={revokeInvitation}><input type="hidden" name="workspace_id" value={space.id} /><input type="hidden" name="invitation_id" value={invite.id} /><Button type="submit" variant="outline" size="sm">Revocar</Button></form></div>)}</div> : <p className="text-sm text-muted-foreground">No hay invitaciones pendientes.</p>}</CardContent></Card>}</div>
-          <div className="space-y-6">{canManage && <Card className="border-0 bg-pastel-mint/60"><CardHeader><div className="mb-2 flex size-11 items-center justify-center rounded-2xl bg-white"><Users aria-hidden /></div><CardTitle>Invitar a alguien</CardTitle><CardDescription>Le enviaremos un correo. Su acceso empieza cuando acepte con ese correo.</CardDescription></CardHeader><CardContent><InviteMemberForm workspaceId={space.id} /></CardContent></Card>}{canManage && <Card><CardHeader><CardTitle>Nombre del espacio</CardTitle></CardHeader><CardContent><RenameWorkspaceForm workspaceId={space.id} name={space.name} /></CardContent></Card>}</div></div>
+          {canManage && <Card><CardHeader><CardTitle>Invitaciones pendientes</CardTitle><CardDescription>El rol queda reservado y el acceso se activa al verificar el código.</CardDescription></CardHeader><CardContent>{invites.length ? <div className="space-y-3">{invites.map((invite) => <div key={invite.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 p-4"><div><p className="text-sm font-medium">{invite.email}</p><p className="text-xs text-muted-foreground">{roleNames[invite.role]} · vence {new Intl.DateTimeFormat("es", { day: "numeric", month: "short" }).format(new Date(invite.expires_at))}</p></div><form action={revokeInvitation}><input type="hidden" name="workspace_id" value={space.id} /><input type="hidden" name="invitation_id" value={invite.id} /><Button type="submit" variant="outline" size="sm">Revocar</Button></form></div>)}</div> : <p className="text-sm text-muted-foreground">No hay invitaciones pendientes.</p>}</CardContent></Card>}</div>
+          <div className="space-y-6"><Card><CardHeader><CardTitle>Tu perfil</CardTitle><CardDescription>Este nombre aparece en Personas, actividad, tareas y comentarios.</CardDescription></CardHeader><CardContent><RenameProfileForm workspaceId={space.id} name={name} /></CardContent></Card>{canManage && <Card className="border-0 bg-pastel-mint/60"><CardHeader><div className="mb-2 flex size-11 items-center justify-center rounded-2xl bg-white"><Users aria-hidden /></div><CardTitle>Invitar a alguien</CardTitle><CardDescription>Recibirá por correo un código de seis dígitos para este espacio.</CardDescription></CardHeader><CardContent><InviteMemberForm workspaceId={space.id} /></CardContent></Card>}{canManage && <Card><CardHeader><CardTitle>Nombre del espacio</CardTitle></CardHeader><CardContent><RenameWorkspaceForm workspaceId={space.id} name={space.name} /></CardContent></Card>}</div></div>
         </>}
       </main>
   </AppShell>;

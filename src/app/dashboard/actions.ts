@@ -1,11 +1,14 @@
 "use server";
 
-import { createHash, randomBytes } from "node:crypto";
+import { randomInt } from "node:crypto";
 import { auth, clerkClient, currentUser } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { withSuccessToast } from "@/lib/success-toast";
+import { sendWorkspaceInvitation } from "@/lib/email/workspace-invitation";
+import { hashInvitationCode } from "@/lib/invitations/code";
 
 export type FormState = { error: string | null };
 type Role = "owner" | "admin" | "editor" | "viewer";
@@ -52,18 +55,20 @@ function ideaInput(data: FormData): { title: string; description: string; kind: 
 }
 
 export async function createWorkspace(_state: FormState, data: FormData): Promise<FormState> {
-  const userId = await actor();
+  await actor();
   const name = value(data, "name");
-  if (!name || name.length > 120) return { error: "Escribe un nombre de hasta 120 caracteres." };
+  if (!name) return { error: "No se pudo crear el espacio porque el nombre está vacío." };
+  if (name.length > 120) return {
+    error: "No se pudo crear el espacio porque el nombre es demasiado largo. Usa 120 caracteres como máximo.",
+  };
   const supabase = createClient();
   const user = await currentUser();
-  const setup = await supabase.rpc("ensure_personal_workspace", { chosen_name: user?.firstName || "Creador" });
+  const setup = await supabase.rpc("ensure_personal_workspace", { chosen_name: user?.fullName || user?.firstName || "Creador" });
   if (setup.error) return { error: "No se pudo preparar tu cuenta. Inténtalo otra vez." };
-  const { data: created, error } = await supabase.from("workspaces")
-    .insert({ name, owner_id: userId, is_personal: false }).select("id").single();
-  if (error || !created) return { error: "No se pudo crear el espacio." };
+  const { data: workspaceId, error } = await supabase.rpc("create_shared_workspace", { chosen_name: name });
+  if (error || !workspaceId) return { error: "No se pudo crear el espacio. Inténtalo otra vez." };
   revalidatePath("/dashboard");
-  redirect(workspaceUrl(created.id));
+  redirect(withSuccessToast(workspaceUrl(workspaceId), `Espacio “${name}” creado.`));
 }
 
 export async function renameWorkspace(_state: FormState, data: FormData): Promise<FormState> {
@@ -77,7 +82,30 @@ export async function renameWorkspace(_state: FormState, data: FormData): Promis
     .update({ name }).eq("id", workspaceId).select("id").maybeSingle();
   if (error || !updated) return { error: "No se pudo guardar el nombre." };
   revalidatePath("/dashboard");
-  redirect(workspaceUrl(workspaceId, "team"));
+  redirect(withSuccessToast(workspaceUrl(workspaceId, "team"), `Nombre cambiado a “${name}”.`));
+}
+
+export async function renameProfile(_state: FormState, data: FormData): Promise<FormState> {
+  const userId = await actor();
+  const workspaceId = value(data, "workspace_id");
+  const name = value(data, "name");
+  if (!name) return { error: "El nombre no puede estar vacío." };
+  if (name.length > 120) return { error: "El nombre no puede superar 120 caracteres." };
+  if (!await roleFor(workspaceId, userId)) return { error: "No perteneces a este espacio." };
+
+  try {
+    const clerk = await clerkClient();
+    await clerk.users.updateUser(userId, { firstName: name });
+  } catch {
+    return { error: "No se pudo actualizar el nombre de tu cuenta." };
+  }
+  const { data: updated, error } = await createClient().from("profiles")
+    .update({ display_name: name }).eq("id", userId).select("id").maybeSingle();
+  if (error || !updated) return { error: "La cuenta cambió, pero no pudimos actualizar el nombre para el equipo. Recarga la página." };
+
+  revalidatePath("/dashboard");
+  revalidatePath("/projects", "layout");
+  redirect(withSuccessToast(workspaceUrl(workspaceId, "team"), `Ahora apareces como “${name}”.`));
 }
 
 export async function createIdea(_state: FormState, data: FormData): Promise<FormState> {
@@ -87,11 +115,17 @@ export async function createIdea(_state: FormState, data: FormData): Promise<For
   if (typeof input === "string") return { error: input };
   if (!(["owner", "admin", "editor"] as (Role | null)[]).includes(await roleFor(workspaceId, userId)))
     return { error: "No tienes permiso para crear ideas en este espacio." };
-  const { data: created, error } = await createClient().from("ideas")
-    .insert({ ...input, workspace_id: workspaceId, author_id: userId }).select("id").single();
-  if (error || !created) return { error: "No se pudo guardar la idea." };
+  const { data: createdId, error } = await createAdminClient().rpc("create_workspace_idea", {
+    actor_id: userId,
+    target_workspace_id: workspaceId,
+    idea_title: input.title,
+    idea_description: input.description,
+    idea_kind: input.kind,
+    idea_tags: input.tags,
+  });
+  if (error || !createdId) return { error: "No se pudo guardar la idea. Actualiza la página e inténtalo otra vez." };
   revalidatePath("/dashboard");
-  redirect(`/ideas/${created.id}?workspace=${workspaceId}`);
+  redirect(withSuccessToast(`/ideas/${createdId}?workspace=${workspaceId}`, "Idea creada."));
 }
 
 export async function updateIdea(_state: FormState, data: FormData): Promise<FormState> {
@@ -107,7 +141,7 @@ export async function updateIdea(_state: FormState, data: FormData): Promise<For
   if (error || !updated) return { error: "No se pudo actualizar la idea." };
   revalidatePath("/dashboard");
   revalidatePath(`/ideas/${ideaId}`);
-  redirect(`/ideas/${ideaId}?workspace=${workspaceId}`);
+  redirect(withSuccessToast(`/ideas/${ideaId}?workspace=${workspaceId}`, "Cambios de la idea guardados."));
 }
 
 export async function setIdeaArchived(data: FormData) {
@@ -124,7 +158,10 @@ export async function setIdeaArchived(data: FormData) {
   if (error || !updated) throw new Error("No se pudo cambiar el estado de la idea.");
   revalidatePath("/dashboard");
   revalidatePath(`/ideas/${ideaId}`);
-  redirect(`/ideas/${ideaId}?workspace=${workspaceId}`);
+  redirect(withSuccessToast(
+    `/ideas/${ideaId}?workspace=${workspaceId}`,
+    nextStatus === "archived" ? "Idea archivada." : "Idea restaurada.",
+  ));
 }
 
 export async function inviteMember(_state: FormState, data: FormData): Promise<FormState> {
@@ -138,8 +175,8 @@ export async function inviteMember(_state: FormState, data: FormData): Promise<F
   if (!(["owner", "admin"] as (Role | null)[]).includes(await roleFor(workspaceId, userId)))
     return { error: "No tienes permiso para invitar personas." };
 
-  const token = randomBytes(32).toString("hex");
-  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const code = randomInt(100000, 1000000).toString();
+  const tokenHash = hashInvitationCode(code);
   const admin = createAdminClient();
   const { data: invitationId, error } = await admin.rpc("create_workspace_invitation", {
     actor_id: userId, target_workspace_id: workspaceId, invited_email: email,
@@ -148,21 +185,42 @@ export async function inviteMember(_state: FormState, data: FormData): Promise<F
   if (error || !invitationId) return { error: "No se pudo crear la invitación. Revisa el límite de 20 por hora." };
 
   try {
-    const origin = process.env.NEXT_PUBLIC_APP_URL;
-    if (!origin) throw new Error("Falta la URL pública de la aplicación.");
-    const url = new URL("/invitaciones/aceptar", origin);
-    url.searchParams.set("token", token);
-    const clerk = await clerkClient();
-    await clerk.invitations.createInvitation({
-      emailAddress: email, redirectUrl: url.toString(), expiresInDays: 7,
-      ignoreExisting: true,
+    const { data: workspace } = await admin.from("workspaces")
+      .select("name").eq("id", workspaceId).maybeSingle();
+    if (!workspace?.name) throw new Error("workspace_not_found");
+    const deliveryId = await sendWorkspaceInvitation({
+      to: email,
+      code,
+      workspaceName: workspace.name,
+      role,
+      invitationId,
     });
-  } catch {
+    await admin.rpc("mark_workspace_invitation_sent", {
+      actor_id: userId,
+      invitation_id: invitationId,
+      provider_delivery_id: deliveryId,
+    });
+  } catch (deliveryError) {
     await admin.rpc("revoke_workspace_invitation", { actor_id: userId, invitation_id: invitationId });
-    return { error: "No se pudo enviar el correo de invitación. Inténtalo otra vez." };
+    const deliveryCode = deliveryError instanceof Error ? deliveryError.message : "";
+    return {
+      error: deliveryCode === "missing_email_configuration"
+        ? "Falta configurar el servicio de correo. Agrega RESEND_API_KEY, INVITATION_FROM_EMAIL y NEXT_PUBLIC_APP_URL."
+        : deliveryCode === "missing_gmail_configuration"
+          ? "Falta configurar Gmail. Agrega GMAIL_USER y GMAIL_APP_PASSWORD en .env.local."
+          : deliveryCode === "invalid_gmail_app_password_format"
+            ? "La contraseña de aplicación de Gmail debe contener exactamente los 16 caracteres generados por Google."
+          : deliveryCode === "gmail_authentication_failed"
+            ? "Gmail rechazó el acceso. Usa una contraseña de aplicación de 16 caracteres, no la contraseña normal."
+        : deliveryCode === "public_sender_domain"
+          ? "El remitente no puede ser Gmail, Outlook u otro correo público. Usa una dirección de un dominio propio verificado en Resend."
+          : deliveryCode === "unverified_sender_domain"
+            ? "Resend rechazó el remitente porque su dominio todavía no está verificado. Verifica el dominio y vuelve a intentarlo."
+            : "No se pudo enviar el correo de invitación. Comprueba el remitente e inténtalo otra vez.",
+    };
   }
   revalidatePath("/dashboard");
-  redirect(workspaceUrl(workspaceId, "team"));
+  redirect(withSuccessToast(workspaceUrl(workspaceId, "team"), `Invitación enviada a ${email}.`));
 }
 
 export async function revokeInvitation(data: FormData) {
@@ -178,7 +236,7 @@ export async function revokeInvitation(data: FormData) {
   const { error } = await admin.rpc("revoke_workspace_invitation", { actor_id: userId, invitation_id: invitationId });
   if (error) throw new Error("No se pudo revocar la invitación.");
   revalidatePath("/dashboard");
-  redirect(workspaceUrl(workspaceId, "team"));
+  redirect(withSuccessToast(workspaceUrl(workspaceId, "team"), "Invitación revocada."));
 }
 
 export async function changeMember(data: FormData) {
@@ -189,11 +247,21 @@ export async function changeMember(data: FormData) {
   if (!targetId || !["admin", "editor", "viewer", "remove"].includes(role)
       || !(["owner", "admin"] as (Role | null)[]).includes(await roleFor(workspaceId, userId)))
     throw new Error("No tienes permiso para cambiar a esta persona.");
-  const { error } = await createAdminClient().rpc("manage_workspace_member", {
+  const admin = createAdminClient();
+  const { data: changed, error } = await admin.rpc("manage_workspace_member", {
     actor_id: userId, target_workspace_id: workspaceId, target_user_id: targetId,
     next_role: role === "remove" ? null : role,
   });
-  if (error) throw new Error("No se pudo cambiar el rol o retirar a la persona.");
+  if (error || !changed) throw new Error("No se pudo cambiar el rol o retirar a la persona.");
+  const { data: savedMembership } = await admin.from("workspace_memberships")
+    .select("role").eq("workspace_id", workspaceId).eq("user_id", targetId).maybeSingle();
+  if ((role === "remove" && savedMembership) || (role !== "remove" && savedMembership?.role !== role)) {
+    throw new Error("El rol no quedó guardado. Actualiza la página e inténtalo otra vez.");
+  }
   revalidatePath("/dashboard");
-  redirect(workspaceUrl(workspaceId, "team"));
+  revalidatePath("/projects", "layout");
+  redirect(withSuccessToast(
+    workspaceUrl(workspaceId, "team"),
+    role === "remove" ? "Persona retirada del espacio." : "Rol actualizado.",
+  ));
 }

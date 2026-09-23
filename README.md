@@ -5,7 +5,7 @@ Un taller compartido para guardar ideas de software y hacerlas crecer. La entreg
 ## Stack
 
 - Next.js 16, React 19, TypeScript, Tailwind CSS 4 y shadcn/ui.
-- Clerk para cuentas, sesiones y correo de invitación.
+- Clerk para cuentas y sesiones; Resend para correos transaccionales de invitación.
 - Supabase PostgreSQL para espacios, roles, ideas, proyectos, requisitos y tareas. El cliente de datos usa el JWT de Clerk y políticas RLS.
 - Interfaz en español con Instrument Sans, Manrope y tarjetas pastel.
 
@@ -13,7 +13,7 @@ Un taller compartido para guardar ideas de software y hacerlas crecer. La entreg
 
 - Espacio personal privado al iniciar sesión; creación de espacios adicionales y cambio de espacio.
 - Cuatro roles: propietario, administrador, editor y lector. Propietario y administrador gestionan personas; editor crea y modifica ideas; lector consulta.
-- Invitación por correo con rol, expiración de siete días y revocación. La aceptación exige iniciar sesión con el correo verificado que recibió la invitación. Una invitación no concede acceso hasta aceptarse.
+- Invitación por correo con un código de seis dígitos asociado al correo, rol y espacio. Vence a los siete días, se bloquea tras cinco intentos fallidos y solo concede acceso después de verificarse con la cuenta de Clerk correcta.
 - Creación, edición, búsqueda por título/notas/etiquetas, filtros y archivo recuperable de ideas. La búsqueda muestra hasta 200 resultados por consulta.
 
 ## Funciones de la fase 2
@@ -56,13 +56,13 @@ pnpm install
 pnpm dev
 ```
 
-Usa `.env.example` como guía. Las claves locales de Clerk y Supabase están en `.env` o `.env.local`, ignorados por Git. `SUPABASE_SERVICE_ROLE_KEY` es **solo de servidor** y se usa exclusivamente en los flujos de invitación y gestión de roles. Nunca la publiques con el prefijo `NEXT_PUBLIC_`. En otra instalación debes configurarla en el servidor de despliegue. Define `NEXT_PUBLIC_APP_URL` con la URL pública para que los correos de Clerk lleven al destino correcto.
+Usa `.env.example` como guía. Las claves locales están en `.env` o `.env.local`, ignorados por Git. `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY` y `GMAIL_APP_PASSWORD` son **solo de servidor**; nunca las publiques con el prefijo `NEXT_PUBLIC_`. Define `NEXT_PUBLIC_APP_URL` con la URL pública. Para correo puedes usar `EMAIL_PROVIDER=resend` con un dominio verificado o `EMAIL_PROVIDER=gmail` con una cuenta de Gmail y una contraseña de aplicación.
 
 ## Clerk y Supabase
 
 El proyecto local está vinculado a la instancia de desarrollo de Clerk. Sus tokens incluyen `role: authenticated`; el proyecto Supabase `bzjvactaprvxpksazjka` registra el dominio `relieved-dragon-405.clerk.accounts.dev` como proveedor externo. En otro entorno, configura la integración nativa de Clerk con Supabase y registra el dominio de la nueva instancia.
 
-Las migraciones están en `supabase/migrations`. Las primeras cuatro cubren fundaciones, espacios e ideas, el proyecto ejecutable y el orden de requisitos. La quinta añade la fecha de inicio de tareas; la sexta permite crear una tarea con su checklist inicial en una transacción; la séptima añade stack, ADR y diagramas; la octava añade actividad, notificaciones y permisos por proyecto; la novena refuerza asignaciones y checklist; la décima añade versiones y vínculos de diagramas. Todas están aplicadas al proyecto enlazado. Para instalar en otro proyecto, enlázalo con `supabase link --project-ref <ref>` y aplica `pnpm db:push`.
+Las migraciones están en `supabase/migrations`. Cubren fundaciones, espacios e ideas, proyecto ejecutable, documentación, colaboración, trazabilidad, creación atómica de espacios e invitaciones con código. Todas están aplicadas al proyecto enlazado. Para instalar en otro proyecto, enlázalo con `supabase link --project-ref <ref>` y aplica `pnpm db:push`.
 
 El manual de pruebas funcionales y de autorización se genera en `output/pdf/manual-pruebas-completo-armario-dev.pdf`.
 
