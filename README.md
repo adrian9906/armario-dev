@@ -1,6 +1,6 @@
 # Armario Dev
 
-Un taller compartido para guardar ideas de software y hacerlas crecer. La entrega actual cubre **0 · Fundaciones**, **1 · Espacios e ideas**, **2 · Proyecto ejecutable**, **3 · Documentación**, **5.1 · Actividad y notificaciones** y **5.2 · Permisos por proyecto** del roadmap.
+Un taller compartido para guardar ideas de software y hacerlas crecer. La entrega actual cubre **0 · Fundaciones**, **1 · Espacios e ideas**, **2 · Proyecto ejecutable**, **3 · Documentación**, **5.1 · Actividad y notificaciones**, **5.2 · Permisos por proyecto** y **5.3 · Versionado y trazabilidad de diagramas** del roadmap.
 
 ## Stack
 
@@ -40,6 +40,13 @@ Un taller compartido para guardar ideas de software y hacerlas crecer. La entreg
 - Roles por proyecto: administrador, editor, colaborador y lector. El colaborador comenta y completa el checklist de sus tareas asignadas; el editor modifica el contenido; el administrador también gestiona personas y visibilidad.
 - Acciones del servidor, funciones con privilegios y políticas RLS usan la misma matriz de permisos. Una tarea solo puede asignarse a alguien que pueda abrir el proyecto.
 
+## Funciones de la fase 5.3
+
+- Cada creación, edición, cambio de estado o restauración de un diagrama conserva una versión inmutable con número, autor, fecha y resumen.
+- Se puede inspeccionar la fuente Mermaid de cualquier versión y restaurarla. La restauración crea una versión nueva y nunca sobrescribe el historial.
+- Los diagramas se vinculan con requisitos y decisiones ADR del mismo proyecto para mantener trazabilidad navegable.
+- Las versiones y los vínculos heredan los permisos del proyecto mediante políticas RLS.
+
 ## Preparar el entorno
 
 Requiere Node.js 22 y pnpm 11.19.0.
@@ -55,7 +62,9 @@ Usa `.env.example` como guía. Las claves locales de Clerk y Supabase están en 
 
 El proyecto local está vinculado a la instancia de desarrollo de Clerk. Sus tokens incluyen `role: authenticated`; el proyecto Supabase `bzjvactaprvxpksazjka` registra el dominio `relieved-dragon-405.clerk.accounts.dev` como proveedor externo. En otro entorno, configura la integración nativa de Clerk con Supabase y registra el dominio de la nueva instancia.
 
-Las migraciones están en `supabase/migrations`. Las primeras cuatro cubren fundaciones, espacios e ideas, el proyecto ejecutable y el orden de requisitos. La quinta añade la fecha de inicio de tareas; la sexta permite crear una tarea con su checklist inicial en una transacción; la séptima añade stack, ADR y diagramas; la octava añade actividad, notificaciones y permisos por proyecto; la novena refuerza asignaciones y checklist. Todas están aplicadas al proyecto enlazado. Para instalar en otro proyecto, enlázalo con `supabase link --project-ref <ref>` y aplica `pnpm db:push`.
+Las migraciones están en `supabase/migrations`. Las primeras cuatro cubren fundaciones, espacios e ideas, el proyecto ejecutable y el orden de requisitos. La quinta añade la fecha de inicio de tareas; la sexta permite crear una tarea con su checklist inicial en una transacción; la séptima añade stack, ADR y diagramas; la octava añade actividad, notificaciones y permisos por proyecto; la novena refuerza asignaciones y checklist; la décima añade versiones y vínculos de diagramas. Todas están aplicadas al proyecto enlazado. Para instalar en otro proyecto, enlázalo con `supabase link --project-ref <ref>` y aplica `pnpm db:push`.
+
+El manual de pruebas funcionales y de autorización se genera en `output/pdf/manual-pruebas-completo-armario-dev.pdf`.
 
 La clave de servicio permite a las acciones del servidor crear y aceptar invitaciones en transacciones. Las funciones de base de datos correspondientes solo conceden `EXECUTE` a `service_role`, y vuelven a comprobar el rol, el correo verificado, el estado y el vencimiento. El resto de lecturas y escrituras usa la clave publicable y RLS.
 

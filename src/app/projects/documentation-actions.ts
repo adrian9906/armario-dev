@@ -112,22 +112,67 @@ export async function saveDiagram(
   const kind = read(form, "kind");
   const source = read(form, "source");
   const status = read(form, "status") || "active";
+  const changeSummary = read(form, "change_summary");
   if (!title || title.length > 160 || !source || source.length > 50000
-    || !allowed(kind, diagramKinds) || !["active", "archived"].includes(status))
+    || !allowed(kind, diagramKinds) || !["active", "archived"].includes(status) || changeSummary.length > 500)
     return { error: "Revisa el título, el tipo y el contenido del diagrama." };
 
   const db = createClient();
   const values = { title, kind, source, status };
   const result = diagramId
-    ? await db.from("project_diagrams").update(values)
-      .eq("id", diagramId).eq("project_id", projectId).eq("workspace_id", project.workspace_id)
-      .select("id").maybeSingle()
+    ? await db.rpc("update_project_diagram", {
+      target_diagram_id: diagramId, diagram_title: title, diagram_kind: kind,
+      diagram_source: source, diagram_status: status, revision_summary: changeSummary,
+    }).then(({ data, error }) => ({ data: data ? { id: data } : null, error }))
     : await db.from("project_diagrams").insert({
       ...values, project_id: projectId, workspace_id: project.workspace_id, creator_id: project.userId,
     }).select("id").single();
   if (result.error || !result.data) return { error: "No se pudo guardar el diagrama." };
   revalidatePath(`/projects/${projectId}`);
   redirect(`/projects/${projectId}/documentation/diagrams/${result.data.id}`);
+}
+
+export async function restoreDiagramVersion(form: FormData) {
+  const projectId = read(form, "project_id");
+  const diagramId = read(form, "diagram_id");
+  const versionId = read(form, "version_id");
+  const project = await editableProject(projectId);
+  if (!project || !uuid.test(diagramId) || !uuid.test(versionId)) throw new Error("No tienes permiso para restaurar esta versión.");
+  const db = createClient();
+  const { data: version } = await db.from("project_diagram_versions").select("id")
+    .eq("id", versionId).eq("diagram_id", diagramId).eq("project_id", projectId).maybeSingle();
+  if (!version) throw new Error("La versión ya no está disponible.");
+  const { data, error } = await db.rpc("restore_project_diagram_version", { target_version_id: versionId });
+  if (error || data !== diagramId) throw new Error("No se pudo restaurar la versión.");
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath(`/projects/${projectId}/documentation/diagrams/${diagramId}`);
+  redirect(`/projects/${projectId}/documentation/diagrams/${diagramId}`);
+}
+
+export async function toggleDiagramLink(form: FormData) {
+  const projectId = read(form, "project_id");
+  const diagramId = read(form, "diagram_id");
+  const targetId = read(form, "target_id");
+  const targetType = read(form, "target_type");
+  const operation = read(form, "operation");
+  const project = await editableProject(projectId);
+  if (!project || !uuid.test(diagramId) || !uuid.test(targetId)
+    || !["requirement", "decision"].includes(targetType) || !["add", "remove"].includes(operation))
+    throw new Error("No tienes permiso para cambiar este vínculo.");
+  const db = createClient();
+  const { data: diagram } = await db.from("project_diagrams").select("id")
+    .eq("id", diagramId).eq("project_id", projectId).maybeSingle();
+  const targetTable = targetType === "requirement" ? "requirements" : "architecture_decisions";
+  const { data: target } = await db.from(targetTable).select("id").eq("id", targetId).eq("project_id", projectId).maybeSingle();
+  if (!diagram || !target) throw new Error("Los elementos deben pertenecer al mismo proyecto.");
+  const linkTable = targetType === "requirement" ? "diagram_requirements" : "diagram_decisions";
+  const targetColumn = targetType === "requirement" ? "requirement_id" : "decision_id";
+  const query = db.from(linkTable);
+  const result = operation === "add"
+    ? await query.insert({ workspace_id: project.workspace_id, project_id: projectId, diagram_id: diagramId, [targetColumn]: targetId })
+    : await query.delete().eq("diagram_id", diagramId).eq(targetColumn, targetId).eq("project_id", projectId);
+  if (result.error) throw new Error("No se pudo cambiar el vínculo.");
+  revalidatePath(`/projects/${projectId}/documentation/diagrams/${diagramId}`);
 }
 
 export async function archiveDiagram(form: FormData) {
