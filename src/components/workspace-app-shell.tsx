@@ -1,6 +1,6 @@
 import "server-only";
 
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
@@ -21,17 +21,18 @@ export async function WorkspaceAppShell({
   project?: { id: string; title: string; canEdit?: boolean; canManage?: boolean };
   children: React.ReactNode;
 }) {
-  const [{ userId }, user, cookieStore] = await Promise.all([auth.protect(), currentUser(), cookies()]);
+  const [{ userId }, cookieStore] = await Promise.all([auth.protect(), cookies()]);
   const db = createClient();
-  const [spacesResponse, membershipsResponse, unreadResponse] = await Promise.all([
+  const [spacesResponse, membershipsResponse, unreadResponse, profileResponse] = await Promise.all([
     db.from("workspaces").select("id,name,is_personal").order("created_at"),
     db.from("workspace_memberships").select("workspace_id,role").eq("user_id", userId),
     db.from("notifications").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("recipient_id", userId).is("read_at", null),
+    db.from("profiles").select("display_name").eq("id", userId).maybeSingle(),
   ]);
   const spaces = spacesResponse.data ?? [];
   const activeSpace = spaces.find((space) => space.id === workspaceId);
   const membership = membershipsResponse.data?.find((item) => item.workspace_id === workspaceId);
-  if (!activeSpace || !membership || spacesResponse.error || membershipsResponse.error) notFound();
+  if (!activeSpace || !membership || spacesResponse.error || membershipsResponse.error || profileResponse.error) notFound();
 
   return (
     <AppShell
@@ -39,7 +40,7 @@ export async function WorkspaceAppShell({
       activeSpace={activeSpace}
       activeSection={activeSection}
       role={membership.role}
-      userName={user?.fullName || user?.firstName || "Creador"}
+      userName={profileResponse.data?.display_name || "Creador"}
       project={project}
       headerLabel={headerLabel}
       defaultOpen={cookieStore.get("sidebar_state")?.value !== "false"}

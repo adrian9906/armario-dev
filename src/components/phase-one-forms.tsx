@@ -1,15 +1,17 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useId, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { createIdea, createWorkspace, inviteMember, renameProfile, renameWorkspace, updateIdea } from "@/app/dashboard/actions";
-import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { createIdea, createWorkspace, inviteMember, renameProfile, renameWorkspace, updateIdea, type FormState } from "@/app/dashboard/actions";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Spinner } from "@/components/ui/spinner";
 
-const initialFormState = { error: null };
+const initialFormState: FormState = { error: null, success: null };
 const ideaKinds = [
   { value: "undecided", label: "Aún no lo sé" },
   { value: "web", label: "Web" },
@@ -28,6 +30,14 @@ const inviteRoles = [
 function Submit({ children }: { children: React.ReactNode }) {
   const { pending } = useFormStatus();
   return <Button type="submit" disabled={pending}>{pending ? "Guardando…" : children}</Button>;
+}
+
+function IdeaSubmit({ children }: { children: React.ReactNode }) {
+  const { pending } = useFormStatus();
+  return <button type="submit" disabled={pending} aria-busy={pending || undefined} className={buttonVariants({ className: "w-full sm:w-auto" })}>
+    {pending && <Spinner data-icon="inline-start" />}
+    {pending ? "Guardando…" : children}
+  </button>;
 }
 
 export function CreateWorkspaceForm() {
@@ -58,21 +68,28 @@ export function RenameProfileForm({ workspaceId, name }: { workspaceId: string; 
 }
 
 type IdeaValues = { id?: string; title: string; description: string; kind: string | null; tags: string[] };
-export function IdeaForm({ workspaceId, idea }: { workspaceId: string; idea?: IdeaValues }) {
+export function IdeaForm({ workspaceId, idea, presentation = "page", onSuccess }: { workspaceId: string; idea?: IdeaValues; presentation?: "page" | "modal"; onSuccess?: () => void }) {
   const [state, action] = useActionState(idea ? updateIdea : createIdea, initialFormState);
   const [kind, setKind] = useState(idea?.kind || "undecided");
+  const formId = useId();
+  useEffect(() => {
+    if (!state.success) return;
+    toast.success(state.success);
+    onSuccess?.();
+  }, [onSuccess, state.success]);
   return <form action={action}><FieldGroup>
     <input type="hidden" name="workspace_id" value={workspaceId} />
     <input type="hidden" name="kind" value={kind} />
+    <input type="hidden" name="presentation" value={presentation} />
     {idea?.id && <input type="hidden" name="idea_id" value={idea.id} />}
-    <Field><FieldLabel htmlFor="idea-title">Título de la idea</FieldLabel><Input id="idea-title" name="title" maxLength={160} required defaultValue={idea?.title} placeholder="¿Qué quieres construir?" /></Field>
-    <Field><FieldLabel htmlFor="idea-description">Notas</FieldLabel><Textarea id="idea-description" name="description" maxLength={10000} rows={6} defaultValue={idea?.description} placeholder="El problema, para quién es y lo que imaginas…" /></Field>
+    <Field><FieldLabel htmlFor={`${formId}-title`}>Título de la idea</FieldLabel><Input id={`${formId}-title`} name="title" maxLength={160} required defaultValue={idea?.title} placeholder="¿Qué quieres construir?" /></Field>
+    <Field><FieldLabel htmlFor={`${formId}-description`}>Notas</FieldLabel><Textarea id={`${formId}-description`} name="description" maxLength={10000} rows={6} defaultValue={idea?.description} placeholder="El problema, para quién es y lo que imaginas…" /></Field>
     <div className="grid gap-5 sm:grid-cols-2">
-      <Field><FieldLabel htmlFor="idea-kind">Tipo inicial</FieldLabel><Select value={kind} onValueChange={(value) => value && setKind(value)} items={ideaKinds}><SelectTrigger id="idea-kind" className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{ideaKinds.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
-      <Field><FieldLabel htmlFor="idea-tags">Etiquetas</FieldLabel><Input id="idea-tags" name="tags" defaultValue={idea?.tags.join(", ")} placeholder="productividad, equipo, SaaS" /><p className="text-xs text-muted-foreground">Separadas por comas; hasta 12.</p></Field>
+      <Field><FieldLabel htmlFor={`${formId}-kind`}>Tipo inicial</FieldLabel><Select value={kind} onValueChange={(value) => value && setKind(value)} items={ideaKinds}><SelectTrigger id={`${formId}-kind`} className="w-full"><SelectValue /></SelectTrigger><SelectContent><SelectGroup>{ideaKinds.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
+      <Field><FieldLabel htmlFor={`${formId}-tags`}>Etiquetas</FieldLabel><Input id={`${formId}-tags`} name="tags" defaultValue={idea?.tags.join(", ")} placeholder="productividad, equipo, SaaS" /><p className="text-xs text-muted-foreground">Separadas por comas; hasta 12.</p></Field>
     </div>
     {state.error && <FieldError>{state.error}</FieldError>}
-    <Submit>{idea ? "Guardar cambios" : "Guardar idea"}</Submit>
+    <IdeaSubmit>{idea ? "Guardar cambios" : "Guardar idea"}</IdeaSubmit>
   </FieldGroup></form>;
 }
 

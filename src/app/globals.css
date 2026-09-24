@@ -17,6 +17,7 @@
   --color-pastel-sky: var(--pastel-sky);
   --color-pastel-peach: var(--pastel-peach);
   --color-pastel-lavender: var(--pastel-lavender);
+  --color-highlight: var(--highlight);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -83,6 +84,7 @@
   --pastel-sky: #abf0ff;
   --pastel-peach: #ffe6d4;
   --pastel-lavender: #eddff7;
+  --highlight: #fde68a;
   --radius: 0.625rem;
   --sidebar: #ffffff;
   --sidebar-foreground: #333333;

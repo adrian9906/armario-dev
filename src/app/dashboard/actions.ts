@@ -1,7 +1,7 @@
 "use server";
 
 import { randomInt } from "node:crypto";
-import { auth, clerkClient, currentUser } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -10,7 +10,7 @@ import { withSuccessToast } from "@/lib/success-toast";
 import { sendWorkspaceInvitation } from "@/lib/email/workspace-invitation";
 import { hashInvitationCode } from "@/lib/invitations/code";
 
-export type FormState = { error: string | null };
+export type FormState = { error: string | null; success?: string | null };
 type Role = "owner" | "admin" | "editor" | "viewer";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const kinds = ["web", "mobile", "frontend", "backend", "mixed", "other", "undecided"];
@@ -55,15 +55,15 @@ function ideaInput(data: FormData): { title: string; description: string; kind: 
 }
 
 export async function createWorkspace(_state: FormState, data: FormData): Promise<FormState> {
-  await actor();
+  const userId = await actor();
   const name = value(data, "name");
   if (!name) return { error: "No se pudo crear el espacio porque el nombre está vacío." };
   if (name.length > 120) return {
     error: "No se pudo crear el espacio porque el nombre es demasiado largo. Usa 120 caracteres como máximo.",
   };
   const supabase = createClient();
-  const user = await currentUser();
-  const setup = await supabase.rpc("ensure_personal_workspace", { chosen_name: user?.fullName || user?.firstName || "Creador" });
+  const { data: profile } = await supabase.from("profiles").select("display_name").eq("id", userId).maybeSingle();
+  const setup = await supabase.rpc("ensure_personal_workspace", { chosen_name: profile?.display_name || "Creador" });
   if (setup.error) return { error: "No se pudo preparar tu cuenta. Inténtalo otra vez." };
   const { data: workspaceId, error } = await supabase.rpc("create_shared_workspace", { chosen_name: name });
   if (error || !workspaceId) return { error: "No se pudo crear el espacio. Inténtalo otra vez." };
@@ -93,15 +93,9 @@ export async function renameProfile(_state: FormState, data: FormData): Promise<
   if (name.length > 120) return { error: "El nombre no puede superar 120 caracteres." };
   if (!await roleFor(workspaceId, userId)) return { error: "No perteneces a este espacio." };
 
-  try {
-    const clerk = await clerkClient();
-    await clerk.users.updateUser(userId, { firstName: name });
-  } catch {
-    return { error: "No se pudo actualizar el nombre de tu cuenta." };
-  }
   const { data: updated, error } = await createClient().from("profiles")
     .update({ display_name: name }).eq("id", userId).select("id").maybeSingle();
-  if (error || !updated) return { error: "La cuenta cambió, pero no pudimos actualizar el nombre para el equipo. Recarga la página." };
+  if (error || !updated) return { error: "No se pudo actualizar el nombre para el equipo. Recarga la página." };
 
   revalidatePath("/dashboard");
   revalidatePath("/projects", "layout");
@@ -115,17 +109,18 @@ export async function createIdea(_state: FormState, data: FormData): Promise<For
   if (typeof input === "string") return { error: input };
   if (!(["owner", "admin", "editor"] as (Role | null)[]).includes(await roleFor(workspaceId, userId)))
     return { error: "No tienes permiso para crear ideas en este espacio." };
-  const { data: createdId, error } = await createAdminClient().rpc("create_workspace_idea", {
-    actor_id: userId,
-    target_workspace_id: workspaceId,
-    idea_title: input.title,
-    idea_description: input.description,
-    idea_kind: input.kind,
-    idea_tags: input.tags,
-  });
-  if (error || !createdId) return { error: "No se pudo guardar la idea. Actualiza la página e inténtalo otra vez." };
+  const { data: created, error } = await createClient().from("ideas").insert({
+    workspace_id: workspaceId,
+    author_id: userId,
+    title: input.title,
+    description: input.description,
+    kind: input.kind,
+    tags: input.tags,
+  }).select("id").single();
+  if (error || !created) return { error: "No se pudo guardar la idea. Actualiza la página e inténtalo otra vez." };
   revalidatePath("/dashboard");
-  redirect(withSuccessToast(`/ideas/${createdId}?workspace=${workspaceId}`, "Idea creada."));
+  if (value(data, "presentation") === "modal") return { error: null, success: "Idea creada y lista para crecer." };
+  redirect(withSuccessToast(`/ideas/${created.id}?workspace=${workspaceId}`, "Idea creada."));
 }
 
 export async function updateIdea(_state: FormState, data: FormData): Promise<FormState> {
@@ -136,32 +131,48 @@ export async function updateIdea(_state: FormState, data: FormData): Promise<For
   if (typeof input === "string") return { error: input };
   if (!validId(ideaId) || !(["owner", "admin", "editor"] as (Role | null)[]).includes(await roleFor(workspaceId, userId)))
     return { error: "No tienes permiso para editar esta idea." };
-  const { data: updated, error } = await createClient().from("ideas")
+  const { data: updated, error } = await createAdminClient().from("ideas")
     .update(input).eq("id", ideaId).eq("workspace_id", workspaceId).neq("status", "converted").select("id").maybeSingle();
-  if (error || !updated) return { error: "No se pudo actualizar la idea." };
-  revalidatePath("/dashboard");
-  revalidatePath(`/ideas/${ideaId}`);
+  if (error || !updated) {
+    console.error("updateIdea failed", { code: error?.code, message: error?.message, ideaId, workspaceId });
+    return { error: "No se pudo actualizar la idea. Inténtalo otra vez." };
+  }
+  revalidatePath("/dashboard", "page");
+  revalidatePath(`/ideas/${ideaId}`, "page");
+  if (value(data, "presentation") === "modal") return { error: null, success: "Cambios guardados correctamente." };
   redirect(withSuccessToast(`/ideas/${ideaId}?workspace=${workspaceId}`, "Cambios de la idea guardados."));
 }
 
-export async function setIdeaArchived(data: FormData) {
+async function changeIdeaStatus(data: FormData) {
   const userId = await actor();
   const workspaceId = value(data, "workspace_id");
   const ideaId = value(data, "idea_id");
   const nextStatus = value(data, "status");
   if (!validId(ideaId) || !["active", "archived"].includes(nextStatus)
       || !(["owner", "admin", "editor"] as (Role | null)[]).includes(await roleFor(workspaceId, userId)))
-    throw new Error("No tienes permiso para cambiar esta idea.");
-  const { data: updated, error } = await createClient().from("ideas")
+    return { error: "No tienes permiso para cambiar esta idea.", workspaceId, ideaId, nextStatus };
+  const { data: updated, error } = await createAdminClient().from("ideas")
     .update({ status: nextStatus }).eq("id", ideaId).eq("workspace_id", workspaceId).neq("status", "converted")
     .select("id").maybeSingle();
-  if (error || !updated) throw new Error("No se pudo cambiar el estado de la idea.");
-  revalidatePath("/dashboard");
-  revalidatePath(`/ideas/${ideaId}`);
+  if (error || !updated) return { error: "No se pudo cambiar el estado de la idea.", workspaceId, ideaId, nextStatus };
+  revalidatePath("/dashboard", "page");
+  revalidatePath(`/ideas/${ideaId}`, "page");
+  return { error: null, workspaceId, ideaId, nextStatus };
+}
+
+export async function setIdeaArchived(data: FormData) {
+  const result = await changeIdeaStatus(data);
+  if (result.error) throw new Error(result.error);
   redirect(withSuccessToast(
-    `/ideas/${ideaId}?workspace=${workspaceId}`,
-    nextStatus === "archived" ? "Idea archivada." : "Idea restaurada.",
+    `/ideas/${result.ideaId}?workspace=${result.workspaceId}`,
+    result.nextStatus === "archived" ? "Idea archivada." : "Idea restaurada.",
   ));
+}
+
+export async function setIdeaArchivedInline(_state: FormState, data: FormData): Promise<FormState> {
+  const result = await changeIdeaStatus(data);
+  if (result.error) return { error: result.error };
+  return { error: null, success: result.nextStatus === "archived" ? "Idea archivada." : "Idea restaurada." };
 }
 
 export async function inviteMember(_state: FormState, data: FormData): Promise<FormState> {

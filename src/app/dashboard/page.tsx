@@ -5,6 +5,7 @@ import { Activity, ArrowRight, Archive, Bell, Check, FolderKanban, Lightbulb, Me
 import { AppShell } from "@/components/app-shell";
 import { Brand } from "@/components/brand";
 import { IdeaFiltersForm } from "@/components/idea-filters-form";
+import { CreateIdeaDialog, IdeaCardActions } from "@/components/idea-dialogs";
 import { MemberRoleForm } from "@/components/member-role-form";
 import { InviteMemberForm, RenameProfileForm, RenameWorkspaceForm } from "@/components/phase-one-forms";
 import { NotificationPreferencesForm } from "@/components/notification-preferences-form";
@@ -36,45 +37,72 @@ const route = (id: string, view: string) => `/dashboard?workspace=${id}&view=${v
 const actionNames: Record<string, string> = { created: "creó", updated: "actualizó", status_changed: "cambió el estado de", deleted: "eliminó", access_changed: "cambió el acceso de" };
 const entityNames: Record<string, string> = { idea: "la idea", project: "el proyecto", task: "la tarea", requirement: "el requisito", comment: "un comentario", technology: "la tecnología", decision: "la decisión", diagram: "el diagrama", project_member: "una persona del proyecto" };
 const relativeDate = (value: string) => new Intl.DateTimeFormat("es", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+const escapePattern = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  const terms = query.trim().split(/\s+/).filter(Boolean).map(escapePattern);
+  if (!terms.length) return text;
+  const pattern = new RegExp(`(${terms.join("|")})`, "gi");
+  const exact = new RegExp(`^(?:${terms.join("|")})$`, "i");
+  return <>{text.split(pattern).map((part, index) => exact.test(part) ? <mark key={`${part}-${index}`} className="rounded-sm bg-highlight px-0.5 text-inherit box-decoration-clone">{part}</mark> : part)}</>;
+}
 
 export default async function DashboardPage({ searchParams }: { searchParams: Params }) {
   const { userId } = await auth.protect();
-  const user = await currentUser();
-  const name = user?.fullName || user?.firstName || "Creador";
   const params = await searchParams;
   if (!getSupabaseConfig()) return <main className="mx-auto max-w-3xl p-8"><Brand /><Alert className="mt-8"><AlertTitle>Tu taller está casi listo</AlertTitle><AlertDescription>Revisa la URL y la clave publicable de Supabase en .env o .env.local.</AlertDescription></Alert></main>;
 
   const db = createClient();
-  const verifiedEmails = user?.emailAddresses
-    .filter((address) => address.verification?.status === "verified")
-    .map((address) => address.emailAddress.toLowerCase()) ?? [];
-  let pendingInvitations: PendingInvitation[] = [];
-  if (verifiedEmails.length) {
+  const ownProfileResponse = await db.from("profiles").select("display_name").eq("id", userId).maybeSingle();
+  let user = null;
+  let name = ownProfileResponse.data?.display_name?.trim() || "";
+
+  // Clerk is only needed to seed a profile once. A network failure must not make
+  // the authenticated dashboard unavailable.
+  if (!name) {
     try {
-      const { data } = await createAdminClient().from("workspace_invitations")
-        .select("id,role,workspace_id,workspaces(name)")
-        .in("email", verifiedEmails)
-        .eq("status", "pending")
-        .gt("expires_at", new Date().toISOString())
-        .order("created_at", { ascending: false });
-      pendingInvitations = (data ?? []).map((invitation) => {
-        const relatedWorkspace = invitation.workspaces as { name?: string } | { name?: string }[] | null;
-        const workspaceName = Array.isArray(relatedWorkspace)
-          ? relatedWorkspace[0]?.name
-          : relatedWorkspace?.name;
-        return {
-          id: invitation.id,
-          role: invitation.role,
-          workspaceId: invitation.workspace_id,
-          workspaceName: workspaceName ?? "Espacio invitado",
-        };
-      });
+      user = await currentUser();
+      name = user?.fullName || user?.firstName || "Creador";
+    } catch {
+      name = "Creador";
+    }
+  }
+
+  const setup = await db.rpc("ensure_personal_workspace", { chosen_name: name });
+  if (setup.error || ownProfileResponse.error) return <main className="mx-auto max-w-3xl p-8"><Brand /><Alert variant="destructive" className="mt-8"><AlertTitle>No se pudieron cargar los datos</AlertTitle><AlertDescription>Revisa la conexión entre Clerk y Supabase y actualiza la página.</AlertDescription></Alert></main>;
+
+  const view = ["overview", "ideas", "projects", "activity", "notifications", "team"].includes(params.view ?? "") ? params.view! : "overview";
+  let pendingInvitations: PendingInvitation[] = [];
+  if (view === "team") {
+    try {
+      user ??= await currentUser();
+      const verifiedEmails = user?.emailAddresses
+        .filter((address) => address.verification?.status === "verified")
+        .map((address) => address.emailAddress.toLowerCase()) ?? [];
+      if (verifiedEmails.length) {
+        const { data } = await createAdminClient().from("workspace_invitations")
+          .select("id,role,workspace_id,workspaces(name)")
+          .in("email", verifiedEmails)
+          .eq("status", "pending")
+          .gt("expires_at", new Date().toISOString())
+          .order("created_at", { ascending: false });
+        pendingInvitations = (data ?? []).map((invitation) => {
+          const relatedWorkspace = invitation.workspaces as { name?: string } | { name?: string }[] | null;
+          const workspaceName = Array.isArray(relatedWorkspace)
+            ? relatedWorkspace[0]?.name
+            : relatedWorkspace?.name;
+          return {
+            id: invitation.id,
+            role: invitation.role,
+            workspaceId: invitation.workspace_id,
+            workspaceName: workspaceName ?? "Espacio invitado",
+          };
+        });
+      }
     } catch {
       pendingInvitations = [];
     }
   }
-  const setup = await db.rpc("ensure_personal_workspace", { chosen_name: name });
-  if (setup.error) return <main className="mx-auto max-w-3xl p-8"><Brand /><Alert variant="destructive" className="mt-8"><AlertTitle>No se pudieron cargar los datos</AlertTitle><AlertDescription>Revisa la conexión entre Clerk y Supabase y actualiza la página.</AlertDescription></Alert></main>;
   const [spacesResponse, rolesResponse] = await Promise.all([
     db.from("workspaces").select("id,name,is_personal").order("created_at"),
     db.from("workspace_memberships").select("workspace_id,role").eq("user_id", userId),
@@ -85,7 +113,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
   const role = rolesResponse.data?.find((item) => item.workspace_id === space.id)?.role ?? "viewer";
   const canEdit = ["owner", "admin", "editor"].includes(role);
   const canManage = ["owner", "admin"].includes(role);
-  const view = ["overview", "ideas", "projects", "activity", "notifications", "team"].includes(params.view ?? "") ? params.view! : "overview";
   const sidebarOpen = (await cookies()).get("sidebar_state")?.value !== "false";
   const status = ["active", "archived", "all"].includes(params.status ?? "") ? params.status! : "active";
   const kind = Object.keys(kindNames).includes(params.kind ?? "") ? params.kind! : "";
@@ -117,14 +144,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pa
       <main className="mx-auto w-full max-w-7xl px-5 py-10 sm:px-8 lg:px-10 lg:py-12">
         {dataError && <Alert variant="destructive" className="mb-7"><AlertTitle>No se pudieron cargar todos los datos</AlertTitle><AlertDescription>Actualiza la página para volver a intentarlo.</AlertDescription></Alert>}
         {view === "overview" && <>
-          <div className="mb-9 flex flex-wrap items-end justify-between gap-4"><div><Badge className="mb-4 border-0 bg-pastel-mint px-4 py-2 text-foreground">Tu espacio creativo</Badge><h1 className="text-[2.35rem] leading-[1.12] font-bold tracking-[-0.045em] sm:text-[3rem]">Hola, {name}</h1><p className="mt-3 text-base leading-relaxed text-muted-foreground">Ideas y personas reunidas en {space.name}.</p></div>{canEdit && <Button render={<Link href={`/ideas/new?workspace=${space.id}`} />}><Plus aria-hidden /> Nueva idea</Button>}</div>
+          <div className="mb-9 flex flex-wrap items-end justify-between gap-4"><div><Badge className="mb-4 border-0 bg-pastel-mint px-4 py-2 text-foreground">Tu espacio creativo</Badge><h1 className="text-[2.35rem] leading-[1.12] font-bold tracking-[-0.045em] sm:text-[3rem]">Hola, {name}</h1><p className="mt-3 text-base leading-relaxed text-muted-foreground">Ideas y personas reunidas en {space.name}.</p></div>{canEdit && <CreateIdeaDialog workspaceId={space.id} />}</div>
           <div className="grid gap-5 sm:grid-cols-3"><Card className="border-0 bg-pastel-sky"><CardHeader><CardDescription className="text-foreground/70">Ideas activas</CardDescription><CardTitle className="text-[2.8rem] leading-none font-bold tracking-tight">{ideaCount.count ?? 0}</CardTitle></CardHeader><CardContent><Lightbulb aria-hidden /></CardContent></Card><Card className="border-0 bg-pastel-mint"><CardHeader><CardDescription className="text-foreground/70">Personas</CardDescription><CardTitle className="text-[2.8rem] leading-none font-bold tracking-tight">{members.length}</CardTitle></CardHeader><CardContent><Users aria-hidden /></CardContent></Card><Card className="border-0 bg-pastel-peach"><CardHeader><CardDescription className="text-foreground/70">Proyectos</CardDescription><CardTitle className="text-[2.8rem] leading-none font-bold tracking-tight">{projects.length}</CardTitle></CardHeader><CardContent><FolderKanban aria-hidden /></CardContent></Card></div>
           <div className="mt-8 grid gap-5 lg:grid-cols-2"><Card><CardHeader><div className="mb-3 flex size-12 items-center justify-center rounded-2xl bg-pastel-lavender"><Lightbulb aria-hidden /></div><CardTitle>De una chispa a un proyecto</CardTitle><CardDescription>Guarda lo que imaginas y dale forma con notas y etiquetas.</CardDescription></CardHeader><CardContent><Button variant="outline" render={<Link href={route(space.id, "ideas")} />}>Explorar ideas <ArrowRight aria-hidden /></Button></CardContent></Card><Card><CardHeader><div className="mb-3 flex size-12 items-center justify-center rounded-2xl bg-pastel-mint"><Users aria-hidden /></div><CardTitle>Construir en compañía</CardTitle><CardDescription>Invita a personas con el rol adecuado para revisar o desarrollar ideas.</CardDescription></CardHeader><CardContent><Button variant="outline" render={<Link href={route(space.id, "team")} />}>Ver equipo <ArrowRight aria-hidden /></Button></CardContent></Card></div>
         </>}
         {view === "ideas" && <>
-          <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><Badge className="mb-4 border-0 bg-pastel-lavender px-4 py-2 text-foreground">Bandeja de ideas</Badge><h1 className="text-[2.35rem] leading-[1.12] font-bold tracking-[-0.045em] sm:text-[3rem]">Todas las ideas</h1><p className="mt-3 text-base leading-relaxed text-muted-foreground">Busca, filtra y deja crecer cada posibilidad.</p></div>{canEdit && <Button render={<Link href={`/ideas/new?workspace=${space.id}`} />}><Plus aria-hidden /> Nueva idea</Button>}</div>
-          <IdeaFiltersForm workspaceId={space.id} query={query} status={status} kind={kind} />
-          {ideas.length ? <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">{ideas.map((idea, index) => <Link key={idea.id} href={`/ideas/${idea.id}?workspace=${space.id}`} className="group block focus-visible:rounded-3xl focus-visible:outline-2 focus-visible:outline-primary"><Card className="h-full border-0 transition-transform group-hover:-translate-y-0.5"><CardHeader><div className={`mb-4 flex size-11 items-center justify-center rounded-2xl ${colors[index % colors.length]}`}><Lightbulb className="size-5" aria-hidden /></div><div className="flex items-start justify-between gap-3"><CardTitle className="line-clamp-2 text-xl">{idea.title}</CardTitle><ArrowRight className="size-4 shrink-0 text-muted-foreground" aria-hidden /></div><CardDescription className="line-clamp-3 min-h-15 leading-relaxed">{idea.description || "Aún no hay notas. Abre la idea para desarrollarla."}</CardDescription></CardHeader><CardContent><div className="mb-4 flex flex-wrap gap-2"><Badge variant="secondary">{idea.status === "archived" ? "Archivada" : idea.status === "converted" ? "Convertida" : kindNames[idea.kind ?? "undecided"]}</Badge>{idea.tags.slice(0, 2).map((tag) => <Badge variant="outline" key={tag}>{tag}</Badge>)}</div><p className="text-xs text-muted-foreground">{new Intl.DateTimeFormat("es", { day: "numeric", month: "short", year: "numeric" }).format(new Date(idea.created_at))}</p></CardContent></Card></Link>)}</div> : <Card className="border-dashed"><CardContent className="flex flex-col items-center py-14 text-center"><div className="mb-5 flex size-14 items-center justify-center rounded-2xl bg-pastel-lavender"><Archive aria-hidden /></div><h2 className="text-lg font-semibold">{query || status !== "active" || kind ? "No encontramos ideas con esos filtros" : "Aquí comienza tu próxima idea"}</h2><p className="mt-2 max-w-md text-sm text-muted-foreground">{query || status !== "active" || kind ? "Prueba otra búsqueda o cambia los filtros." : "Captura una idea en pocas palabras. Podrás ampliarla cuando quieras."}</p>{canEdit && !query && status === "active" && !kind && <Button className="mt-6" render={<Link href={`/ideas/new?workspace=${space.id}`} />}>Crear la primera idea</Button>}</CardContent></Card>}
+          <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><Badge className="mb-4 border-0 bg-pastel-lavender px-4 py-2 text-foreground">Bandeja de ideas</Badge><h1 className="text-[2.35rem] leading-[1.12] font-bold tracking-[-0.045em] sm:text-[3rem]">Todas las ideas</h1><p className="mt-3 text-base leading-relaxed text-muted-foreground">Busca, filtra y deja crecer cada posibilidad.</p></div>{canEdit && <CreateIdeaDialog workspaceId={space.id} />}</div>
+          <IdeaFiltersForm key={`${query}:${status}:${kind}`} workspaceId={space.id} query={query} status={status} kind={kind} />
+          {ideas.length ? <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">{ideas.map((idea, index) => <Card key={idea.id} className="h-full border-0 transition-transform hover:-translate-y-0.5"><CardHeader><div className="mb-4 flex items-center justify-between gap-3"><div className={`flex size-11 items-center justify-center rounded-2xl ${colors[index % colors.length]}`}><Lightbulb className="size-5" aria-hidden /></div>{canEdit && idea.status !== "converted" && <IdeaCardActions workspaceId={space.id} idea={idea} />}</div><CardTitle className="text-xl"><Link href={`/ideas/${idea.id}?workspace=${space.id}`} className="group inline-flex items-start gap-2 hover:text-primary"><HighlightedText text={idea.title} query={query} /><ArrowRight className="mt-1 size-4 shrink-0 transition-transform group-hover:translate-x-0.5" aria-hidden /></Link></CardTitle><CardDescription className="line-clamp-3 min-h-15 leading-relaxed"><HighlightedText text={idea.description || "Aún no hay notas. Abre la idea para desarrollarla."} query={query} /></CardDescription></CardHeader><CardContent><div className="mb-4 flex flex-wrap gap-2"><Badge variant="secondary">{idea.status === "archived" ? "Archivada" : idea.status === "converted" ? "Convertida" : kindNames[idea.kind ?? "undecided"]}</Badge>{idea.tags.slice(0, 2).map((tag) => <Badge variant="outline" key={tag}><HighlightedText text={tag} query={query} /></Badge>)}</div><p className="text-xs text-muted-foreground">{new Intl.DateTimeFormat("es", { day: "numeric", month: "short", year: "numeric" }).format(new Date(idea.created_at))}</p></CardContent></Card>)}</div> : <Card className="border-dashed"><CardContent className="flex flex-col items-center py-14 text-center"><div className="mb-5 flex size-14 items-center justify-center rounded-2xl bg-pastel-lavender"><Archive aria-hidden /></div><h2 className="text-lg font-semibold">{query || status !== "active" || kind ? "No encontramos ideas con esos filtros" : "Aquí comienza tu próxima idea"}</h2><p className="mt-2 max-w-md text-sm text-muted-foreground">{query || status !== "active" || kind ? "Prueba otra búsqueda o cambia los filtros." : "Captura una idea en pocas palabras. Podrás ampliarla cuando quieras."}</p>{canEdit && !query && status === "active" && !kind && <div className="mt-6"><CreateIdeaDialog workspaceId={space.id} compact /></div>}</CardContent></Card>}
           {ideas.length === 200 && <p className="mt-5 text-sm text-muted-foreground">Se muestran las primeras 200 ideas. Usa la búsqueda para afinar resultados.</p>}
         </>}
         {view === "projects" && <>

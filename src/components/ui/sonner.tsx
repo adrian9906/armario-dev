@@ -7,13 +7,18 @@ function Toaster(props: ToasterProps) {
     <Sonner
       position="bottom-right"
       closeButton
+      richColors
       toastOptions={{
         classNames: {
-          toast: "group toast border-border bg-popover text-popover-foreground shadow-lg",
+          toast: "group toast border-0 text-foreground shadow-xl",
           title: "font-semibold",
-          description: "text-muted-foreground",
+          description: "text-foreground/75",
           actionButton: "bg-primary text-primary-foreground",
           cancelButton: "bg-muted text-muted-foreground",
+          success: "!bg-pastel-mint !text-foreground",
+          error: "!bg-destructive !text-white",
+          info: "!bg-pastel-sky !text-foreground",
+          warning: "!bg-pastel-peach !text-foreground",
         },
       }}
       {...props}
