@@ -11,6 +11,7 @@ import {
 } from "@/lib/documentation-model";
 import { createClient } from "@/lib/supabase/server";
 import { getProjectAccess } from "@/lib/project-access";
+import { withSuccessToast } from "@/lib/success-toast";
 
 export type DocumentationFormState = { error: string | null };
 
@@ -60,7 +61,10 @@ export async function saveTechnology(
   if (result.error || !result.data)
     return { error: result.error?.code === "23505" ? "Esta tecnología ya está registrada." : "No se pudo guardar la tecnología." };
   revalidatePath(`/projects/${projectId}`);
-  redirect(`/projects/${projectId}/documentation/stack/${result.data.id}`);
+  redirect(withSuccessToast(
+    `/projects/${projectId}/documentation/stack/${result.data.id}`,
+    technologyId ? "Tecnología actualizada." : "Tecnología añadida.",
+  ));
 }
 
 export async function saveDecision(
@@ -95,7 +99,12 @@ export async function saveDecision(
     }).select("id").single();
   if (result.error || !result.data) return { error: "No se pudo guardar la decisión." };
   revalidatePath(`/projects/${projectId}`);
-  redirect(`/projects/${projectId}/documentation/decisions/${result.data.id}`);
+  const decisionPath = `/projects/${projectId}/documentation/decisions/${result.data.id}`;
+  revalidatePath(decisionPath);
+  redirect(withSuccessToast(
+    decisionId ? decisionPath : documentationUrl(projectId),
+    decisionId ? "ADR actualizado." : "ADR creado.",
+  ));
 }
 
 export async function saveDiagram(
@@ -129,7 +138,12 @@ export async function saveDiagram(
     }).select("id").single();
   if (result.error || !result.data) return { error: "No se pudo guardar el diagrama." };
   revalidatePath(`/projects/${projectId}`);
-  redirect(`/projects/${projectId}/documentation/diagrams/${result.data.id}`);
+  const diagramPath = `/projects/${projectId}/documentation/diagrams/${result.data.id}`;
+  revalidatePath(diagramPath);
+  redirect(withSuccessToast(
+    diagramPath,
+    diagramId ? "Diagrama actualizado." : "Diagrama creado.",
+  ));
 }
 
 export async function restoreDiagramVersion(form: FormData) {

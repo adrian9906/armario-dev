@@ -8,7 +8,7 @@ import { validTaskDates } from "@/lib/task-dates";
 import { moduleOptions, projectKinds, projectStages, requirementKinds, requirementPriorities, taskPriorities, taskStatuses } from "@/lib/project-model";
 import { getProjectAccess } from "@/lib/project-access";
 
-export type FormState = { error: string | null };
+export type FormState = { error: string | null; success?: string | null };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const read = (form: FormData, name: string) => { const item = form.get(name); return typeof item === "string" ? item.trim() : ""; };
 const inOptions = (value: string, choices: readonly { value: string }[]) => choices.some((choice) => choice.value === value);
@@ -122,7 +122,7 @@ export async function createTask(_state: FormState, form: FormData): Promise<For
   const fields = taskFields(form);
   const checklist = read(form, "checklist").split(/\r?\n/).map((item) => item.trim()).filter(Boolean);
   if (!project) return { error: "No tienes permiso para crear tareas." };
-  if (!fields) return { error: "Revisa el título, estado, prioridad y rango de fechas." };
+  if (!fields) return { error: "Revisa el título, la prioridad y el rango de fechas." };
   if (checklist.length > 30 || checklist.some((item) => item.length > 300))
     return { error: "El checklist admite hasta 30 pasos de 300 caracteres cada uno." };
   if (!(await validAssignee(project.workspace_id, fields.assignee_id))) return { error: "Asigna la tarea a un miembro de este espacio." };
@@ -149,7 +149,7 @@ export async function updateTask(_state: FormState, form: FormData): Promise<For
   const project = await editableProject(projectId, userId);
   const fields = taskFields(form);
   if (!project || !uuid.test(taskId)) return { error: "No tienes permiso para editar esta tarea." };
-  if (!fields) return { error: "Revisa el título, estado, prioridad y rango de fechas." };
+  if (!fields) return { error: "Revisa el título, la prioridad y el rango de fechas." };
   if (!(await validAssignee(project.workspace_id, fields.assignee_id))) return { error: "Asigna la tarea a un miembro de este espacio." };
   const { data, error } = await createClient().from("tasks").update(fields)
     .eq("id", taskId).eq("project_id", projectId).eq("workspace_id", project.workspace_id)
@@ -157,6 +157,7 @@ export async function updateTask(_state: FormState, form: FormData): Promise<For
   if (error || !data) return { error: "No se pudo guardar la tarea." };
   revalidatePath(`/projects/${projectId}`);
   revalidatePath(taskUrl(projectId, taskId));
+  if (read(form, "presentation") === "modal") return { error: null, success: "Tarea actualizada." };
   redirect(taskUrl(projectId, taskId));
 }
 
@@ -174,7 +175,9 @@ export async function setTaskStatus(form: FormData) {
   if (error || !data) throw new Error("No se pudo cambiar el estado de la tarea.");
   revalidatePath(`/projects/${projectId}`);
   revalidatePath(taskUrl(projectId, taskId));
-  redirect(read(form, "return_to") === "board" ? projectUrl(projectId, "board") : taskUrl(projectId, taskId));
+  const returnTo = read(form, "return_to");
+  if (returnTo === "inline") return;
+  redirect(returnTo === "board" ? projectUrl(projectId, "board") : taskUrl(projectId, taskId));
 }
 
 export async function moveTask(form: FormData) {

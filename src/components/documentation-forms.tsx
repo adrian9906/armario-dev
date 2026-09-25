@@ -1,6 +1,8 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
+import { useFormStatus } from "react-dom";
+import { toast } from "sonner";
 import {
   saveDecision,
   saveDiagram,
@@ -37,8 +39,11 @@ function Choice({ id, name, label, options, defaultValue, disabled = false }: {
   </Select></Field>;
 }
 
-function Submit({ children }: { children: React.ReactNode }) {
-  return <Button type="submit" className="self-start">{children}</Button>;
+function Submit({ children, pendingLabel = "Guardando…" }: { children: React.ReactNode; pendingLabel?: string }) {
+  const { pending } = useFormStatus();
+  return <Button type="submit" className="self-start" disabled={pending} aria-busy={pending || undefined}>
+    {pending ? pendingLabel : children}
+  </Button>;
 }
 
 function resetTechnologyCatalogScroll(open: boolean) {
@@ -71,7 +76,15 @@ export function TechnologyForm({ projectId, technology, readOnly = false }: { pr
               ? <span className="flex min-w-0 items-center gap-2"><TechnologyIcon technology={item} className="size-6" /><span className="truncate">{item.name}</span></span>
               : <span className="text-muted-foreground">Selecciona una tecnología</span>;
           }}</SelectValue></SelectTrigger>
-          <SelectContent data-technology-catalog alignItemWithTrigger={false} className="min-w-(--anchor-width) overflow-y-scroll overscroll-contain pr-1" style={{ maxHeight: "min(28rem, var(--available-height))" }}>
+          <SelectContent
+            data-technology-catalog
+            side="bottom"
+            align="start"
+            alignItemWithTrigger={false}
+            collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
+            className="min-w-(--anchor-width) overflow-y-scroll overscroll-contain pr-1"
+            style={{ maxHeight: "min(28rem, var(--available-height))" }}
+          >
             {technologyCategories.map((category) => {
               const technologies = technologyCatalog.filter((item) => item.category === category.value);
               return <SelectGroup key={category.value}>
@@ -101,6 +114,10 @@ export type DecisionValues = {
 
 export function DecisionForm({ projectId, decision, readOnly = false }: { projectId: string; decision?: DecisionValues; readOnly?: boolean }) {
   const [state, action] = useActionState(saveDecision, initial);
+  useEffect(() => {
+    if (state.error) toast.error(state.error);
+  }, [state]);
+
   return <form action={action}><FieldGroup>
     <input type="hidden" name="project_id" value={projectId} />
     {decision && <input type="hidden" name="decision_id" value={decision.id} />}
@@ -128,6 +145,10 @@ export function DiagramForm({ projectId, diagram, initialKind, initialSource, re
   const [kind, setKind] = useState<keyof typeof diagramTemplates>(startingKind);
   const [source, setSource] = useState(diagram?.source ?? initialSource ?? diagramTemplates[startingKind]);
 
+  useEffect(() => {
+    if (state.error) toast.error(state.error);
+  }, [state]);
+
   function changeTemplate(value: string | null) {
     if (!value || !(value in diagramTemplates)) return;
     const nextKind = value as keyof typeof diagramTemplates;
@@ -143,16 +164,16 @@ export function DiagramForm({ projectId, diagram, initialKind, initialSource, re
       <Field><FieldLabel htmlFor="diagram-title">Título</FieldLabel><Input id="diagram-title" name="title" required maxLength={160} defaultValue={diagram?.title} readOnly={readOnly} placeholder="Ej. Flujo de registro" /></Field>
       <Field data-disabled={readOnly || undefined}>
         <FieldLabel htmlFor="diagram-kind">Plantilla</FieldLabel>
-        <FieldDescription>Al cambiarla se reemplaza el contenido editable con la plantilla elegida.</FieldDescription>
         <Select name="kind" items={diagramKinds} value={kind} onValueChange={changeTemplate} disabled={readOnly}>
           <SelectTrigger id="diagram-kind" className="w-full"><SelectValue>{() => optionLabel(diagramKinds, kind)}</SelectValue></SelectTrigger>
           <SelectContent><SelectGroup>{diagramKinds.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectGroup></SelectContent>
         </Select>
+        <FieldDescription>Al cambiarla se reemplaza el contenido editable con la plantilla elegida.</FieldDescription>
       </Field>
     </div>
     <DiagramEditor value={source} onChange={setSource} readOnly={readOnly} />
     {diagram && !readOnly && <Field><FieldLabel htmlFor="diagram-change-summary">Resumen de cambios</FieldLabel><FieldDescription>Ayuda al equipo a entender qué cambió en esta versión.</FieldDescription><Input id="diagram-change-summary" name="change_summary" maxLength={500} placeholder="Ej. Añadido el flujo de recuperación de contraseña" /></Field>}
     {state.error && <FieldError>{state.error}</FieldError>}
-    {!readOnly && <Submit>{diagram ? "Guardar diagrama" : "Crear diagrama"}</Submit>}
+    {!readOnly && <Submit pendingLabel={diagram ? "Guardando…" : "Creando…"}>{diagram ? "Guardar diagrama" : "Crear diagrama"}</Submit>}
   </FieldGroup></form>;
 }

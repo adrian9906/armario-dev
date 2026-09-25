@@ -3,7 +3,13 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
-import { isValidElement, useEffect, useState, type ReactElement } from "react"
+import {
+  isValidElement,
+  useEffect,
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactElement,
+} from "react"
 import { useFormStatus } from "react-dom"
 import { Spinner } from "@/components/ui/spinner"
 
@@ -62,6 +68,10 @@ function Button({
   const isNavigation = typeof renderElement?.props.href === "string"
   const isDownload = renderElement?.props.download !== undefined
   const pending = formPending || localPending
+  const resolvedClassName = cn(
+    buttonVariants({ variant, size, className }),
+    "data-[pending]:cursor-wait data-[pending]:[&>svg:not([data-slot=spinner])]:hidden"
+  )
 
   useEffect(() => {
     if (!localPending) return
@@ -73,9 +83,36 @@ function Button({
     onClick?.(event)
     if (event.defaultPrevented || disabled || pending || event.button !== 0
       || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-    const nativeGetForm = event.currentTarget.form?.method.toLowerCase() === "get"
     const opensAnotherTab = renderElement?.props.target === "_blank"
-    if ((isNavigation && !opensAnotherTab) || nativeGetForm || pendingOnClick) setLocalPending(true)
+    const isFormSubmitter = event.currentTarget.form && event.currentTarget.type === "submit"
+
+    // Disabling a submitter during its click event can cancel the browser's
+    // default form submission. Form pending state starts via useFormStatus once
+    // React has accepted the submission, so local pending is only for non-forms.
+    if (!isFormSubmitter && ((isNavigation && !opensAnotherTab) || pendingOnClick)) setLocalPending(true)
+  }
+
+  // Base UI's polymorphic button is useful when `render` turns this component
+  // into a Link. For regular buttons, however, React Server Action forms need
+  // a real native submitter so the browser can dispatch the form reliably.
+  if (!render) {
+    const nativeProps = props as ButtonHTMLAttributes<HTMLButtonElement>
+
+    return (
+      <button
+        {...nativeProps}
+        type={nativeProps.type ?? "button"}
+        data-slot="button"
+        data-pending={pending || undefined}
+        aria-busy={pending || undefined}
+        className={resolvedClassName}
+        disabled={disabled || pending}
+        onClick={handleClick}
+      >
+        {pending && <Spinner data-icon="inline-start" />}
+        {children}
+      </button>
+    )
   }
 
   return (
@@ -83,10 +120,7 @@ function Button({
       data-slot="button"
       data-pending={pending || undefined}
       aria-busy={pending || undefined}
-      className={cn(
-        buttonVariants({ variant, size, className }),
-        "data-[pending]:cursor-wait data-[pending]:[&>svg:not([data-slot=spinner])]:hidden"
-      )}
+      className={resolvedClassName}
       disabled={disabled || pending}
       nativeButton={nativeButton ?? !isNavigation}
       onClick={handleClick}

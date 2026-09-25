@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
+import { cn } from "cn";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
@@ -11,15 +12,7 @@ function removeOrphanedMermaidNodes() {
   ).forEach((node) => node.remove());
 }
 
-export function DiagramEditor({
-  value,
-  onChange,
-  readOnly = false,
-}: {
-  value: string;
-  onChange?: (value: string) => void;
-  readOnly?: boolean;
-}) {
+function useMermaidSvg(source: string, delay = 350) {
   const [svg, setSvg] = useState("");
   const [error, setError] = useState<string | null>(null);
   const rawId = useId();
@@ -43,7 +36,7 @@ export function DiagramEditor({
           suppressErrorRendering: true,
           theme: "neutral",
         });
-        const result = await mermaid.render(renderId, value, renderContainer);
+        const result = await mermaid.render(renderId, source, renderContainer);
         if (active) { setSvg(result.svg); setError(null); }
       } catch (renderError) {
         console.error("No se pudo renderizar el diagrama Mermaid.", renderError);
@@ -52,9 +45,35 @@ export function DiagramEditor({
         renderContainer.remove();
         removeOrphanedMermaidNodes();
       }
-    }, 350);
+    }, delay);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [rawId, value]);
+  }, [delay, rawId, source]);
+
+  return { svg, error };
+}
+
+export function DiagramPreview({ source, className }: { source: string; className?: string }) {
+  const { svg, error } = useMermaidSvg(source, 80);
+
+  return <div className={cn("flex h-40 items-center justify-center overflow-hidden rounded-xl border bg-muted/25 p-3", className)}>
+    {error
+      ? <p className="text-center text-xs text-muted-foreground">Vista previa no disponible</p>
+      : svg
+        ? <div className="flex size-full items-center justify-center [&_svg]:max-h-full [&_svg]:max-w-full" dangerouslySetInnerHTML={{ __html: svg }} />
+        : <p className="text-xs text-muted-foreground">Generando vista previa…</p>}
+  </div>;
+}
+
+export function DiagramEditor({
+  value,
+  onChange,
+  readOnly = false,
+}: {
+  value: string;
+  onChange?: (value: string) => void;
+  readOnly?: boolean;
+}) {
+  const { svg, error } = useMermaidSvg(value);
 
   return <div className="grid gap-5 xl:grid-cols-2">
     <Field><FieldLabel htmlFor="diagram-source">{readOnly ? "Contenido" : "Contenido editable"}</FieldLabel><FieldDescription>{readOnly ? "Fuente Mermaid guardada en el proyecto." : "Usa sintaxis Mermaid. La vista previa se actualiza mientras escribes."}</FieldDescription><Textarea id="diagram-source" name="source" required maxLength={50000} rows={18} value={value} onChange={(event) => onChange?.(event.target.value)} readOnly={readOnly} className="font-mono text-sm" /></Field>

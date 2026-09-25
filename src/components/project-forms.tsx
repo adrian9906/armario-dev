@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import { useFormStatus } from "react-dom";
+import { toast } from "sonner";
 import { TaskDateRange } from "@/components/task-date-range";
 import { addChecklistItem, addComment, convertIdea, createRequirement, createTask, updateProject, updateRequirement, updateTask } from "@/app/projects/actions";
 import { Button } from "@/components/ui/button";
@@ -10,9 +11,9 @@ import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldLegen
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { moduleOptions, projectKinds, projectStages, requirementKinds, requirementPriorities, taskPriorities, taskStatuses, type ProjectModules } from "@/lib/project-model";
+import { moduleOptions, projectKinds, projectStages, requirementKinds, requirementPriorities, taskPriorities, type ProjectModules } from "@/lib/project-model";
 
-const initial = { error: null };
+const initial = { error: null, success: null };
 type Choice = { value: string; label: string };
 
 function Submit({ children }: { children: React.ReactNode }) {
@@ -42,11 +43,17 @@ export function ProjectSettingsForm({ project }: { project: ProjectValues }) {
 }
 
 type Member = { user_id: string; name: string };
-type TaskValues = { id: string; title: string; description: string; status: string; priority: string; assignee_id: string | null; start_date: string | null; due_date: string | null };
-export function TaskForm({ projectId, members, task }: { projectId: string; members: Member[]; task?: TaskValues }) {
+export type TaskValues = { id: string; title: string; description: string; status: string; priority: string; assignee_id: string | null; start_date: string | null; due_date: string | null };
+export function TaskForm({ projectId, members, task, presentation = "page", onSuccess }: { projectId: string; members: Member[]; task?: TaskValues; presentation?: "page" | "modal"; onSuccess?: () => void }) {
   const [state, action] = useActionState(task ? updateTask : createTask, initial);
   const assignees = [{ value: "unassigned", label: "Sin asignar" }, ...members.map((member) => ({ value: member.user_id, label: member.name }))];
-  return <form action={action}><FieldGroup><input type="hidden" name="project_id" value={projectId} />{task && <input type="hidden" name="task_id" value={task.id} />}<Field><FieldLabel htmlFor="task-title">Título de la tarea</FieldLabel><Input id="task-title" name="title" required maxLength={160} defaultValue={task?.title} placeholder="¿Qué hay que hacer?" /></Field><Field><FieldLabel htmlFor="task-description">Descripción</FieldLabel><Textarea id="task-description" name="description" rows={4} maxLength={10000} defaultValue={task?.description} placeholder="Contexto o indicaciones para el equipo" /></Field><div className="grid gap-5 sm:grid-cols-2"><ChoiceSelect id="task-status" name="status" label="Estado" options={taskStatuses} defaultValue={task?.status === "archived" ? "todo" : task?.status ?? "todo"} /><ChoiceSelect id="task-priority" name="priority" label="Prioridad" options={taskPriorities} defaultValue={task?.priority ?? "medium"} /><ChoiceSelect id="task-assignee" name="assignee_id" label="Responsable" options={assignees} defaultValue={task?.assignee_id ?? "unassigned"} /></div><TaskDateRange startDate={task?.start_date} dueDate={task?.due_date} />{!task && <Field><FieldLabel htmlFor="task-checklist">Checklist inicial</FieldLabel><FieldDescription>Escribe un paso por línea. Podrás añadir más después.</FieldDescription><Textarea id="task-checklist" name="checklist" rows={4} maxLength={9000} placeholder="Definir la pantalla principal" /></Field>}{state.error && <FieldError>{state.error}</FieldError>}<Submit>{task ? "Guardar tarea" : "Crear tarea"}</Submit></FieldGroup></form>;
+  useEffect(() => {
+    if (!state.success) return;
+    toast.success(state.success);
+    onSuccess?.();
+  }, [onSuccess, state.success]);
+
+  return <form action={action}><FieldGroup><input type="hidden" name="project_id" value={projectId} /><input type="hidden" name="status" value={task?.status === "archived" ? "todo" : task?.status ?? "todo"} /><input type="hidden" name="presentation" value={presentation} />{task && <input type="hidden" name="task_id" value={task.id} />}<Field><FieldLabel htmlFor="task-title">Título de la tarea</FieldLabel><Input id="task-title" name="title" required maxLength={160} defaultValue={task?.title} placeholder="¿Qué hay que hacer?" /></Field><Field><FieldLabel htmlFor="task-description">Descripción</FieldLabel><Textarea id="task-description" name="description" rows={4} maxLength={10000} defaultValue={task?.description} placeholder="Contexto o indicaciones para el equipo" /></Field><div className="grid gap-5 sm:grid-cols-2"><ChoiceSelect id="task-priority" name="priority" label="Prioridad" options={taskPriorities} defaultValue={task?.priority ?? "medium"} /><ChoiceSelect id="task-assignee" name="assignee_id" label="Responsable" options={assignees} defaultValue={task?.assignee_id ?? "unassigned"} /></div><TaskDateRange startDate={task?.start_date} dueDate={task?.due_date} />{!task && <Field><FieldLabel htmlFor="task-checklist">Checklist inicial</FieldLabel><FieldDescription>Escribe un paso por línea. Podrás añadir más después.</FieldDescription><Textarea id="task-checklist" name="checklist" rows={4} maxLength={9000} placeholder="Definir la pantalla principal" /></Field>}{state.error && <FieldError>{state.error}</FieldError>}<Submit>{task ? "Guardar tarea" : "Crear tarea"}</Submit></FieldGroup></form>;
 }
 
 type RequirementValues = { id: string; title: string; description: string; acceptance_criteria: string; kind: string; priority: string };
