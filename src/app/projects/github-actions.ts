@@ -4,6 +4,9 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { getGitHubAppConfig } from "@/lib/github/env";
 import { isValidGitBranchName } from "@/lib/github/branch-name";
+import { decisionDocument, diagramDocument, requirementDocument, type PublishableDocument } from "@/lib/github/document-publication";
+import { commitFilesToGitHub } from "@/lib/github/git-data";
+import { synchronizeRepositoryWithRunner } from "@/lib/github/git-runner";
 import { getLinkedGitHubProject } from "@/lib/github/project-context";
 import {
   createGitHubBranch as createGitHubBranchRemote,
@@ -17,7 +20,7 @@ import {
 import { getProjectAccess } from "@/lib/project-access";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export type GitHubRepositoryFormState = { error: string | null; success: string | null };
+export type GitHubRepositoryFormState = { error: string | null; success: string | null; commitUrl?: string | null };
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const repositoryName = /^[A-Za-z0-9._-]{1,100}$/;
@@ -54,9 +57,78 @@ function friendlyGitHubError(error: unknown) {
   if (message === "github_api_422") return "GitHub rechazó los datos. Comprueba que el nombre no esté ocupado.";
   if (message === "github_default_branch") return "La rama principal no se puede eliminar.";
   if (message === "github_protected_branch") return "La rama está protegida en GitHub y no se puede eliminar.";
+  if (message === "github_branch_moved") return "La rama cambió mientras preparábamos el commit. Actualiza y vuelve a intentarlo.";
+  if (message === "github_commit_file_count") return "Selecciona entre 1 y 100 documentos por commit.";
+  if (message === "github_commit_invalid_file") return "Uno de los documentos supera el límite o genera una ruta no válida.";
+  if (message.includes("not a git command") || message.includes("ENOENT")) return "Git no está disponible en este servidor.";
+  if (message.startsWith("git_runner_")) return "La sincronización Git no pudo completarse. Revisa la rama y vuelve a intentarlo.";
   if (message.startsWith("github_dns_") || message === "github_api_timeout")
     return "No se pudo comunicar con GitHub. Inténtalo de nuevo.";
   return "No se pudo completar la operación con GitHub.";
+}
+
+async function createSyncJob(
+  context: NonNullable<Awaited<ReturnType<typeof linkedManagerContext>>>,
+  projectId: string,
+  operation: string,
+  payload: Record<string, unknown>,
+) {
+  const { data, error } = await context.admin.from("github_sync_jobs").insert({
+    workspace_id: context.access.project.workspace_id,
+    project_id: projectId,
+    operation,
+    payload,
+    status: "pending",
+    created_by: context.userId,
+  }).select("id").single();
+  if (error || !data) throw new Error("github_job_create_failed");
+  await context.admin.from("github_sync_jobs").update({
+    status: "running",
+    attempt_count: 1,
+    started_at: new Date().toISOString(),
+  }).eq("id", data.id);
+  return data.id as string;
+}
+
+async function finishSyncJob(
+  context: NonNullable<Awaited<ReturnType<typeof linkedManagerContext>>>,
+  jobId: string,
+  status: "completed" | "failed",
+  payload: Record<string, unknown>,
+  error?: string,
+) {
+  await context.admin.from("github_sync_jobs").update({
+    status,
+    payload,
+    error: error?.slice(0, 2000) ?? null,
+    finished_at: new Date().toISOString(),
+  }).eq("id", jobId);
+}
+
+async function loadPublishableDocuments(
+  context: NonNullable<Awaited<ReturnType<typeof linkedManagerContext>>>,
+  projectId: string,
+  references: string[],
+) {
+  const grouped = { requirement: [] as string[], decision: [] as string[], diagram: [] as string[] };
+  for (const reference of references) {
+    const [type, id, extra] = reference.split(":");
+    if (extra || !uuid.test(id) || !Object.hasOwn(grouped, type)) throw new Error("github_invalid_document");
+    grouped[type as keyof typeof grouped].push(id);
+  }
+  const [requirements, decisions, diagrams] = await Promise.all([
+    grouped.requirement.length ? context.admin.from("requirements").select("id,title,description,acceptance_criteria,kind,priority,status").eq("project_id", projectId).in("id", grouped.requirement) : Promise.resolve({ data: [], error: null }),
+    grouped.decision.length ? context.admin.from("architecture_decisions").select("id,title,status,context,decision,consequences,decided_at").eq("project_id", projectId).in("id", grouped.decision) : Promise.resolve({ data: [], error: null }),
+    grouped.diagram.length ? context.admin.from("project_diagrams").select("id,title,kind,source,status").eq("project_id", projectId).in("id", grouped.diagram) : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (requirements.error || decisions.error || diagrams.error) throw new Error("github_documents_load_failed");
+  const documents: PublishableDocument[] = [
+    ...(requirements.data ?? []).map(requirementDocument),
+    ...(decisions.data ?? []).map(decisionDocument),
+    ...(diagrams.data ?? []).map(diagramDocument),
+  ];
+  if (documents.length !== references.length) throw new Error("github_invalid_document");
+  return documents;
 }
 
 async function linkedManagerContext(projectId: string) {
@@ -247,5 +319,113 @@ export async function deleteGitHubBranch(
   } catch (error) {
     console.error("Could not delete GitHub branch", error);
     return { error: friendlyGitHubError(error), success: null };
+  }
+}
+
+export async function publishGitHubDocuments(
+  _previous: GitHubRepositoryFormState,
+  form: FormData,
+): Promise<GitHubRepositoryFormState> {
+  const projectId = read(form, "project_id");
+  const branch = read(form, "branch");
+  const expectedHeadSha = read(form, "expected_head_sha");
+  const message = read(form, "commit_message").slice(0, 240);
+  const references = [...new Set(form.getAll("documents").filter((value): value is string => typeof value === "string"))];
+  if (!isValidGitBranchName(branch)) return { error: "Elige una rama válida.", success: null };
+  if (!/^[0-9a-f]{40}$/i.test(expectedHeadSha)) return { error: "Actualiza la actividad antes de publicar.", success: null };
+  if (!message) return { error: "Escribe un mensaje para el commit.", success: null };
+  if (!references.length || references.length > 100) return { error: "Selecciona entre 1 y 100 documentos.", success: null };
+
+  const context = await linkedManagerContext(projectId);
+  if (!context) return { error: "No tienes permiso o el proyecto no tiene un repositorio vinculado.", success: null };
+  if ((context.installation.permissions as Record<string, string>).contents !== "write")
+    return { error: "Activa el permiso Contents: Read and write en la GitHub App.", success: null };
+
+  let jobId: string | null = null;
+  const jobPayload: Record<string, unknown> = { branch, expectedHeadSha, documents: references };
+  try {
+    const documents = await loadPublishableDocuments(context, projectId, references);
+    jobId = await createSyncJob(context, projectId, "publish_documents", jobPayload);
+    const commit = await commitFilesToGitHub({
+      config: context.config,
+      installationId: context.installation.installation_id,
+      owner: context.repository.owner_login,
+      repository: context.repository.name,
+      branch,
+      expectedHeadSha,
+      message,
+      files: documents.map((document) => ({ path: document.path, content: document.content })),
+    });
+    const publishedAt = new Date().toISOString();
+    const { error: publicationError } = await context.admin.from("github_publications").upsert(
+      documents.map((document) => ({
+        project_id: projectId,
+        workspace_id: context.access.project.workspace_id,
+        repository_id: context.repository.repository_id,
+        source_type: document.sourceType,
+        source_id: document.sourceId,
+        path: document.path,
+        branch,
+        last_commit_sha: commit.sha,
+        published_by: context.userId,
+        published_at: publishedAt,
+      })),
+      { onConflict: "project_id,source_type,source_id" },
+    );
+    if (publicationError) console.error("Could not save GitHub publication trace", publicationError);
+    await finishSyncJob(context, jobId, "completed", {
+      ...jobPayload,
+      commitSha: commit.sha,
+      commitUrl: commit.html_url,
+      paths: documents.map((document) => document.path),
+      traceSaved: !publicationError,
+    });
+    revalidatePath(`/projects/${projectId}`);
+    return {
+      error: null,
+      success: `${documents.length} documento${documents.length === 1 ? "" : "s"} publicado${documents.length === 1 ? "" : "s"} en ${branch}.`,
+      commitUrl: commit.html_url,
+    };
+  } catch (error) {
+    console.error("Could not publish Armario documents", error);
+    const friendly = error instanceof Error && ["github_invalid_document", "github_documents_load_failed"].includes(error.message)
+      ? "No se pudieron cargar todos los documentos seleccionados."
+      : friendlyGitHubError(error);
+    if (jobId) await finishSyncJob(context, jobId, "failed", jobPayload, friendly);
+    return { error: friendly, success: null };
+  }
+}
+
+export async function synchronizeGitHubRepository(
+  _previous: GitHubRepositoryFormState,
+  form: FormData,
+): Promise<GitHubRepositoryFormState> {
+  const projectId = read(form, "project_id");
+  const branch = read(form, "branch");
+  if (!isValidGitBranchName(branch)) return { error: "Elige una rama válida.", success: null };
+  const context = await linkedManagerContext(projectId);
+  if (!context) return { error: "No tienes permiso o el proyecto no tiene un repositorio vinculado.", success: null };
+  if ((context.installation.permissions as Record<string, string>).contents !== "write")
+    return { error: "Activa el permiso Contents: Read and write en la GitHub App.", success: null };
+
+  let jobId: string | null = null;
+  const payload: Record<string, unknown> = { branch };
+  try {
+    jobId = await createSyncJob(context, projectId, "repository_sync", payload);
+    const result = await synchronizeRepositoryWithRunner({
+      config: context.config,
+      installationId: context.installation.installation_id,
+      owner: context.repository.owner_login,
+      repository: context.repository.name,
+      branch,
+    });
+    await finishSyncJob(context, jobId, "completed", { ...payload, ...result });
+    revalidatePath(`/projects/${projectId}`);
+    return { error: null, success: result.changed ? `La rama ${branch} fue actualizada y subida.` : `La rama ${branch} ya estaba sincronizada.` };
+  } catch (error) {
+    console.error("Could not synchronize repository with Git runner", error);
+    const friendly = friendlyGitHubError(error);
+    if (jobId) await finishSyncJob(context, jobId, "failed", payload, friendly);
+    return { error: friendly, success: null };
   }
 }

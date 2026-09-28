@@ -1,19 +1,22 @@
 "use client";
 
 import { useActionState, useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, Clock3, ExternalLink, FileDiff, GitBranch, GitCommitHorizontal, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock3, CloudUpload, ExternalLink, FileDiff, GitBranch, GitCommitHorizontal, Plus, RefreshCw, TerminalSquare, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
   createGitHubBranch,
   deleteGitHubBranch,
+  publishGitHubDocuments,
+  synchronizeGitHubRepository,
   type GitHubRepositoryFormState,
 } from "@/app/projects/github-actions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldContent, FieldDescription, FieldError, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -45,8 +48,29 @@ type Snapshot = {
     authorName: string;
     authorAvatarUrl: string | null;
   }>;
+  jobs: Array<{
+    id: string;
+    operation: string;
+    status: "pending" | "running" | "completed" | "failed" | "cancelled";
+    attempts: number;
+    error: string | null;
+    payload: Record<string, unknown>;
+    createdAt: string;
+    startedAt: string | null;
+    finishedAt: string | null;
+  }>;
+  publications: Array<{
+    sourceType: "requirement" | "decision" | "diagram";
+    sourceId: string;
+    path: string;
+    branch: string;
+    lastCommitSha: string;
+    publishedAt: string;
+  }>;
   syncedAt: string;
 };
+
+type PublishableOption = { value: string; type: string; title: string };
 
 type CommitDetail = {
   sha: string;
@@ -85,7 +109,7 @@ function useActionFeedback(state: GitHubRepositoryFormState, onSuccess: () => vo
   }, [onSuccess, state]);
 }
 
-export function ProjectGitHubActivity({ projectId, canManage }: { projectId: string; canManage: boolean }) {
+export function ProjectGitHubActivity({ projectId, canManage, documents }: { projectId: string; canManage: boolean; documents: PublishableOption[] }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -142,6 +166,14 @@ export function ProjectGitHubActivity({ projectId, canManage }: { projectId: str
       <Button type="button" size="sm" variant="ghost" disabled={refreshing} onClick={() => void loadSnapshot(true)}>{refreshing ? <Spinner data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}{refreshing ? "Actualizando…" : "Actualizar"}</Button>
     </div>
 
+    {canManage && <Card className="border-0 bg-pastel-lavender/55">
+      <CardHeader><CardTitle>Operaciones de repositorio</CardTitle><CardDescription>Publica documentación como un commit verificable o ejecuta clone, fetch, pull y push en un entorno temporal.</CardDescription></CardHeader>
+      <CardContent className="flex flex-wrap gap-3">
+        <PublishDocumentsDialog projectId={projectId} branches={snapshot.branches} defaultBranch={snapshot.summary.defaultBranch} documents={documents} publications={snapshot.publications} onChanged={() => void loadSnapshot()} />
+        <SynchronizeRepositoryDialog projectId={projectId} branches={snapshot.branches} defaultBranch={snapshot.summary.defaultBranch} onChanged={() => void loadSnapshot()} />
+      </CardContent>
+    </Card>}
+
     <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
       <Card>
         <CardHeader className="flex-row items-start justify-between gap-4">
@@ -165,7 +197,101 @@ export function ProjectGitHubActivity({ projectId, canManage }: { projectId: str
         </CardContent>
       </Card>
     </div>
+    <SyncJobHistory jobs={snapshot.jobs} />
   </div>;
+}
+
+function PublishDocumentsDialog({ projectId, branches, defaultBranch, documents, publications, onChanged }: {
+  projectId: string;
+  branches: Snapshot["branches"];
+  defaultBranch: string;
+  documents: PublishableOption[];
+  publications: Snapshot["publications"];
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [branch, setBranch] = useState(defaultBranch);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [state, action, pending] = useActionState(publishGitHubDocuments, initialState);
+  const published = new Map(publications.map((publication) => [`${publication.sourceType}:${publication.sourceId}`, publication]));
+  const headSha = branches.find((item) => item.name === branch)?.sha ?? "";
+  const success = useCallback(() => { setOpen(false); setSelected([]); onChanged(); }, [onChanged]);
+  useActionFeedback(state, success);
+
+  function toggleDocument(value: string, checked: boolean) {
+    setSelected((current) => checked ? [...current, value] : current.filter((item) => item !== value));
+  }
+
+  return <Dialog open={open} onOpenChange={setOpen}>
+    <DialogTrigger render={<Button disabled={!branches.length || !documents.length} />}><CloudUpload data-icon="inline-start" /> Publicar documentación</DialogTrigger>
+    <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogHeader><span className="mb-2 flex size-12 items-center justify-center rounded-2xl bg-background"><CloudUpload aria-hidden /></span><DialogTitle>Publicar documentación en GitHub</DialogTitle><DialogDescription>Armario Dev creará un único commit con los documentos seleccionados. Si la rama cambia antes de publicarlo, la operación se detendrá sin sobrescribir nada.</DialogDescription></DialogHeader>
+      <form action={action}><FieldGroup>
+        <input type="hidden" name="project_id" value={projectId} />
+        <input type="hidden" name="branch" value={branch} />
+        <input type="hidden" name="expected_head_sha" value={headSha} />
+        {selected.map((value) => <input key={value} type="hidden" name="documents" value={value} />)}
+        <Field><FieldLabel htmlFor="publish-branch">Rama de destino</FieldLabel><Select value={branch} onValueChange={(value) => setBranch(value ?? defaultBranch)} items={branches.map((item) => ({ value: item.name, label: item.name }))}><SelectTrigger id="publish-branch" className="w-full"><SelectValue /></SelectTrigger><SelectContent alignItemWithTrigger={false}><SelectGroup>{branches.map((item) => <SelectItem key={item.name} value={item.name}>{item.name}{item.name === defaultBranch ? " · principal" : ""}</SelectItem>)}</SelectGroup></SelectContent></Select><FieldDescription>Base verificada: {headSha ? headSha.slice(0, 7) : "sin commits"}.</FieldDescription></Field>
+        <Field><FieldLabel htmlFor="publish-message">Mensaje del commit</FieldLabel><Input id="publish-message" name="commit_message" required maxLength={240} defaultValue="docs: publicar documentación de Armario Dev" /></Field>
+        <Field><FieldLabel>Documentos</FieldLabel><div className="flex max-h-72 flex-col gap-2 overflow-y-auto rounded-2xl border p-3">
+          {documents.map((document, index) => {
+            const publication = published.get(document.value);
+            const checked = selected.includes(document.value);
+            const id = `publish-document-${index}`;
+            return <Field key={document.value} orientation="horizontal" className="rounded-xl p-2 hover:bg-accent">
+              <Checkbox id={id} checked={checked} onCheckedChange={(value) => toggleDocument(document.value, value === true)} />
+              <FieldContent><FieldLabel htmlFor={id}><FieldTitle>{document.title}</FieldTitle></FieldLabel><FieldDescription>{document.type}{publication ? ` · publicado en ${publication.branch} el ${formatDate(publication.publishedAt)}` : " · todavía no publicado"}</FieldDescription></FieldContent>
+              {publication && <Badge variant="secondary">Publicado</Badge>}
+            </Field>;
+          })}
+        </div><FieldDescription>{selected.length} documento{selected.length === 1 ? "" : "s"} en este commit.</FieldDescription></Field>
+        {state.error && <FieldError>{state.error}</FieldError>}
+        <DialogFooter><DialogClose render={<Button type="button" variant="outline" />}>Cancelar</DialogClose><Button type="submit" disabled={pending || !selected.length || !headSha}>{pending ? <Spinner data-icon="inline-start" /> : <CloudUpload data-icon="inline-start" />}{pending ? "Publicando…" : "Crear commit"}</Button></DialogFooter>
+      </FieldGroup></form>
+    </DialogContent>
+  </Dialog>;
+}
+
+function SynchronizeRepositoryDialog({ projectId, branches, defaultBranch, onChanged }: { projectId: string; branches: Snapshot["branches"]; defaultBranch: string; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [branch, setBranch] = useState(defaultBranch);
+  const [state, action, pending] = useActionState(synchronizeGitHubRepository, initialState);
+  const success = useCallback(() => { setOpen(false); onChanged(); }, [onChanged]);
+  useActionFeedback(state, success);
+
+  return <Dialog open={open} onOpenChange={setOpen}>
+    <DialogTrigger render={<Button variant="outline" disabled={!branches.length} />}><TerminalSquare data-icon="inline-start" /> Sincronizar con Git</DialogTrigger>
+    <DialogContent className="max-w-md" showCloseButton={false}>
+      <DialogHeader><span className="mb-2 flex size-12 items-center justify-center rounded-2xl bg-pastel-mint"><TerminalSquare aria-hidden /></span><DialogTitle>Ejecutar sincronización temporal</DialogTitle><DialogDescription>Se clonará el repositorio en una carpeta temporal, se ejecutarán fetch, pull con avance rápido y push, y después la carpeta será eliminada.</DialogDescription></DialogHeader>
+      <form action={action}><FieldGroup>
+        <input type="hidden" name="project_id" value={projectId} />
+        <input type="hidden" name="branch" value={branch} />
+        <Field><FieldLabel htmlFor="runner-branch">Rama</FieldLabel><Select value={branch} onValueChange={(value) => setBranch(value ?? defaultBranch)} items={branches.map((item) => ({ value: item.name, label: item.name }))}><SelectTrigger id="runner-branch" className="w-full"><SelectValue /></SelectTrigger><SelectContent alignItemWithTrigger={false}><SelectGroup>{branches.map((item) => <SelectItem key={item.name} value={item.name}>{item.name}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
+        {state.error && <FieldError>{state.error}</FieldError>}
+        <DialogFooter><DialogClose render={<Button type="button" variant="outline" />}>Cancelar</DialogClose><Button type="submit" disabled={pending}>{pending ? <Spinner data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}{pending ? "Sincronizando…" : "Ejecutar ahora"}</Button></DialogFooter>
+      </FieldGroup></form>
+    </DialogContent>
+  </Dialog>;
+}
+
+function SyncJobHistory({ jobs }: { jobs: Snapshot["jobs"] }) {
+  const operationName: Record<string, string> = { publish_documents: "Publicación de documentos", repository_sync: "Sincronización Git" };
+  return <Card>
+    <CardHeader><CardTitle>Historial de operaciones</CardTitle><CardDescription>Registro durable de commits y ejecuciones del runner en este proyecto.</CardDescription></CardHeader>
+    <CardContent className="flex flex-col gap-3">
+      {jobs.map((job) => <div key={job.id} className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-border/70 p-4">
+        <div className="flex min-w-0 items-start gap-3"><JobIcon status={job.status} /><div className="min-w-0"><p className="text-sm font-semibold">{operationName[job.operation] ?? job.operation}</p><p className="mt-1 text-xs text-muted-foreground">{formatDate(job.createdAt)} · intento {job.attempts || 1}</p>{job.error && <p className="mt-2 text-sm text-destructive">{job.error}</p>}</div></div>
+        <div className="flex items-center gap-2"><Badge variant={job.status === "failed" ? "destructive" : job.status === "completed" ? "secondary" : "outline"}>{job.status === "completed" ? "Completado" : job.status === "failed" ? "Fallido" : job.status === "running" ? "En curso" : job.status === "pending" ? "Pendiente" : "Cancelado"}</Badge>{typeof job.payload.commitUrl === "string" && <a className={buttonVariants({ variant: "ghost", size: "sm" })} href={job.payload.commitUrl} target="_blank" rel="noreferrer">Commit <ExternalLink data-icon="inline-end" /></a>}</div>
+      </div>)}
+      {!jobs.length && <p className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">Las publicaciones y sincronizaciones aparecerán aquí.</p>}
+    </CardContent>
+  </Card>;
+}
+
+function JobIcon({ status }: { status: Snapshot["jobs"][number]["status"] }) {
+  if (status === "completed") return <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-pastel-mint"><CheckCircle2 className="size-4" aria-hidden /></span>;
+  if (status === "failed") return <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-pastel-peach"><XCircle className="size-4" aria-hidden /></span>;
+  return <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted"><RefreshCw className="size-4" aria-hidden /></span>;
 }
 
 function MetricCard({ label, value, tone, small = false }: { label: string; value: string; tone: string; small?: boolean }) {

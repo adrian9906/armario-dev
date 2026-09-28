@@ -36,6 +36,17 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pro
     }).eq("project_id", projectId).eq("workspace_id", context.access.project.workspace_id);
     if (error) console.error("Could not persist GitHub repository metadata", error);
 
+    const [{ data: jobs, error: jobsError }, { data: publications, error: publicationsError }] = await Promise.all([
+      context.admin.from("github_sync_jobs")
+        .select("id,operation,status,attempt_count,error,payload,created_at,started_at,finished_at")
+        .eq("project_id", projectId).order("created_at", { ascending: false }).limit(10),
+      context.admin.from("github_publications")
+        .select("source_type,source_id,path,branch,last_commit_sha,published_at")
+        .eq("project_id", projectId).order("published_at", { ascending: false }),
+    ]);
+    if (jobsError) console.error("Could not load GitHub sync jobs", jobsError);
+    if (publicationsError) console.error("Could not load GitHub publications", publicationsError);
+
     return Response.json({
       summary: {
         id: summary.id,
@@ -66,6 +77,25 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pro
         authoredAt: commit.commit.author?.date ?? commit.commit.committer?.date ?? null,
         authorName: commit.author?.login ?? commit.commit.author?.name ?? "GitHub",
         authorAvatarUrl: commit.author?.avatar_url ?? null,
+      })),
+      jobs: (jobs ?? []).map((job) => ({
+        id: job.id,
+        operation: job.operation,
+        status: job.status,
+        attempts: job.attempt_count,
+        error: job.error,
+        payload: job.payload,
+        createdAt: job.created_at,
+        startedAt: job.started_at,
+        finishedAt: job.finished_at,
+      })),
+      publications: (publications ?? []).map((publication) => ({
+        sourceType: publication.source_type,
+        sourceId: publication.source_id,
+        path: publication.path,
+        branch: publication.branch,
+        lastCommitSha: publication.last_commit_sha,
+        publishedAt: publication.published_at,
       })),
       syncedAt,
     });
