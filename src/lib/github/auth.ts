@@ -78,6 +78,10 @@ async function githubJsonThroughResolvedAddress<T>(url: string, token: string, i
           reject(new Error(`github_api_${status}`));
           return;
         }
+        if (!text) {
+          resolve(undefined as T);
+          return;
+        }
         try {
           resolve(JSON.parse(text) as T);
         } catch {
@@ -101,7 +105,7 @@ export function createGitHubAppJwt(config: Pick<GitHubAppConfig, "clientId" | "p
   return `${unsignedToken}.${base64Url(signature)}`;
 }
 
-async function githubJson<T>(url: string, token: string, init?: RequestInit): Promise<T> {
+export async function githubJson<T>(url: string, token: string, init?: RequestInit): Promise<T> {
   try {
     const response = await fetch(url, {
       ...init,
@@ -115,7 +119,8 @@ async function githubJson<T>(url: string, token: string, init?: RequestInit): Pr
       cache: "no-store",
     });
     if (!response.ok) throw new Error(`github_api_${response.status}`);
-    return response.json() as Promise<T>;
+    const text = await response.text();
+    return text ? JSON.parse(text) as T : undefined as T;
   } catch (error) {
     if (!isDnsLookupFailure(error)) throw error;
     return githubJsonThroughResolvedAddress<T>(url, token, init);

@@ -10,6 +10,7 @@ import {
   BookOpen,
   Columns3,
   FolderKanban,
+  GitFork,
   Lightbulb,
   ListTodo,
   KeyRound,
@@ -100,6 +101,7 @@ export function AppShell({
         { value: "board", label: "Tablero", icon: Columns3 },
         { value: "requirements", label: "Requisitos", icon: BookOpen },
         { value: "documentation", label: "Documentación", icon: FolderKanban },
+        { value: "github", label: "GitHub", icon: GitFork },
         { value: "people", label: "Personas", icon: Users },
         ...(project.canEdit ? [{ value: "settings", label: "Configuración", icon: Settings2 }] : []),
       ]
