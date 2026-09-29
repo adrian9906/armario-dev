@@ -8,6 +8,7 @@ import { ProjectMemberForm, ProjectVisibilityForm } from "@/components/project-a
 import { ProjectSettingsForm } from "@/components/project-forms";
 import { ProjectGitHubRepository } from "@/components/project-github-repository";
 import { ProjectGitHubActivity } from "@/components/project-github-activity";
+import { ProjectGitHubAutomations } from "@/components/project-github-automations";
 import { ProjectGitHubPullRequests } from "@/components/project-github-pull-requests";
 import { CreateDiagramDialog } from "@/components/create-diagram-dialog";
 import { DiagramPreview } from "@/components/diagram-editor";
@@ -21,6 +22,7 @@ import { decisionStatuses, diagramKinds, optionLabel, technologyCategories, tech
 import { moduleOptions, projectKinds, projectProgress, projectStages, requirementCoverage, requirementKinds, requirementPriorities, taskPriorities, taskStatuses, type ProjectModules } from "@/lib/project-model";
 import { requireProjectAccess } from "@/lib/project-access";
 import { canAssignProjectMember } from "@/lib/project-permissions";
+import { getGitHubWebhookSecret } from "@/lib/github/env";
 
 export const dynamic = "force-dynamic";
 type Task = { id: string; title: string; description: string; status: string; priority: string; assignee_id: string | null; start_date: string | null; due_date: string | null; position: number };
@@ -49,7 +51,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
     .select("id,workspace_id,origin_idea_id,origin_snapshot,creator_id,title,objective,kind,stage,modules,visibility,created_at")
     .eq("id", id).maybeSingle();
   if (!project) notFound();
-  const [{ data: space }, tasksResult, requirementsResult, linksResult, membersResult, technologiesResult, decisionsResult, diagramsResult, projectMembersResult, githubInstallationResult, projectRepositoryResult] = await Promise.all([
+  const [{ data: space }, tasksResult, requirementsResult, linksResult, membersResult, technologiesResult, decisionsResult, diagramsResult, projectMembersResult, githubInstallationResult, projectRepositoryResult, automationSettingsResult, githubTaskLinksResult, automationEventsResult] = await Promise.all([
     db.from("workspaces").select("name").eq("id", project.workspace_id).maybeSingle(),
     db.from("tasks").select("id,title,description,status,priority,assignee_id,start_date,due_date,position").eq("project_id", id).order("position"),
     db.from("requirements").select("id,title,kind,priority,status").eq("project_id", id).order("position").order("created_at"),
@@ -61,6 +63,9 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
     db.from("project_memberships").select("user_id,role").eq("project_id", id).order("created_at"),
     db.from("github_installations").select("account_login,status").eq("workspace_id", project.workspace_id).eq("status", "active").maybeSingle(),
     db.from("project_repositories").select("full_name,description,html_url,clone_url,ssh_url,default_branch,visibility,archived,last_synced_at").eq("project_id", id).maybeSingle(),
+    db.from("github_automation_settings").select("task_issue_enabled,task_branch_enabled,task_pr_enabled,pr_merge_completes_task,issue_state_sync,document_publish_enabled,notifications_enabled,branch_prefix").eq("project_id", id).maybeSingle(),
+    db.from("github_task_links").select("task_id,issue_number,issue_url,branch_name,pull_request_number,pull_request_url,pull_request_state,last_origin,last_event").eq("project_id", id).order("updated_at", { ascending: false }),
+    db.from("github_automation_events").select("id,origin,event,status,summary,created_at").eq("project_id", id).order("created_at", { ascending: false }).limit(30),
   ]);
   if (!space) notFound();
   const tasks = (tasksResult.data ?? []) as Task[];
@@ -75,12 +80,18 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
   const progress = projectProgress(tasks);
   const workspaceMembers = (membersResult.data ?? []) as WorkspaceMember[];
   const projectMembers = (projectMembersResult.data ?? []) as ProjectMember[];
+  const automationSettings = automationSettingsResult.data ?? {
+    task_issue_enabled: false, task_branch_enabled: false, task_pr_enabled: false,
+    pr_merge_completes_task: false, issue_state_sync: false, document_publish_enabled: false,
+    notifications_enabled: true, branch_prefix: "task",
+  };
   const memberIds = workspaceMembers.map((member) => member.user_id);
   const profilesResult = memberIds.length ? await db.from("profiles").select("id,display_name").in("id", memberIds) : { data: [], error: null };
   const names = new Map((profilesResult.data ?? []).map((profile) => [profile.id, profile.display_name]));
   const error = tasksResult.error || requirementsResult.error || linksResult.error || membersResult.error || profilesResult.error
     || technologiesResult.error || decisionsResult.error || diagramsResult.error || projectMembersResult.error
-    || githubInstallationResult.error || projectRepositoryResult.error;
+    || githubInstallationResult.error || projectRepositoryResult.error || automationSettingsResult.error
+    || githubTaskLinksResult.error || automationEventsResult.error;
   const modules = project.modules as ProjectModules;
   const snapshot = project.origin_snapshot as { title?: string; description?: string; author_id?: string; created_at?: string } | null;
   const selectableMembers = workspaceMembers
@@ -140,6 +151,15 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           ...decisions.map((decision) => ({ value: `decision:${decision.id}`, type: "ADR", title: decision.title })),
           ...activeDiagrams.map((diagram) => ({ value: `diagram:${diagram.id}`, type: "Diagrama", title: diagram.title })),
         ]}
+      />}
+      {projectRepositoryResult.data && <ProjectGitHubAutomations
+        projectId={id}
+        canManage={canManage}
+        webhookConfigured={Boolean(getGitHubWebhookSecret())}
+        settings={automationSettings}
+        tasks={tasks.map((task) => ({ id: task.id, title: task.title, status: task.status }))}
+        links={githubTaskLinksResult.data ?? []}
+        events={automationEventsResult.data ?? []}
       />}
       {projectRepositoryResult.data && <ProjectGitHubPullRequests projectId={id} canManage={canManage} />}
     </section>}

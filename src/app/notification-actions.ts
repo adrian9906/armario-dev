@@ -42,6 +42,7 @@ export async function saveNotificationPreferences(_state: NotificationPreference
     workspace_id: workspaceId, user_id: userId,
     assignments: form.get("assignments") === "on", comments: form.get("comments") === "on",
     project_access: form.get("project_access") === "on",
+    github: form.get("github") === "on",
   }, { onConflict: "workspace_id,user_id" });
   if (error) return { error: "No se pudieron guardar las preferencias." };
   revalidatePath("/dashboard");

@@ -3,6 +3,8 @@
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
+import { runDocumentGitHubAutomation, runTaskGitHubAutomation } from "@/lib/github/automation";
 import { createClient } from "@/lib/supabase/server";
 import { validTaskDates } from "@/lib/task-dates";
 import { moduleOptions, projectKinds, projectStages, requirementKinds, requirementPriorities, taskPriorities, taskStatuses } from "@/lib/project-model";
@@ -138,6 +140,7 @@ export async function createTask(_state: FormState, form: FormData): Promise<For
     checklist_contents: checklist,
   });
   if (error || !data) return { error: "No se pudo crear la tarea." };
+  after(() => runTaskGitHubAutomation({ projectId, taskId: data, trigger: "created" }));
   revalidatePath(`/projects/${projectId}`);
   redirect(taskUrl(projectId, data));
 }
@@ -155,6 +158,7 @@ export async function updateTask(_state: FormState, form: FormData): Promise<For
     .eq("id", taskId).eq("project_id", projectId).eq("workspace_id", project.workspace_id)
     .select("id").maybeSingle();
   if (error || !data) return { error: "No se pudo guardar la tarea." };
+  after(() => runTaskGitHubAutomation({ projectId, taskId, trigger: "updated" }));
   revalidatePath(`/projects/${projectId}`);
   revalidatePath(taskUrl(projectId, taskId));
   if (read(form, "presentation") === "modal") return { error: null, success: "Tarea actualizada." };
@@ -173,6 +177,7 @@ export async function setTaskStatus(form: FormData) {
     .eq("id", taskId).eq("project_id", projectId).eq("workspace_id", project.workspace_id)
     .select("id").maybeSingle();
   if (error || !data) throw new Error("No se pudo cambiar el estado de la tarea.");
+  after(() => runTaskGitHubAutomation({ projectId, taskId, trigger: "status_changed" }));
   revalidatePath(`/projects/${projectId}`);
   revalidatePath(taskUrl(projectId, taskId));
   const returnTo = read(form, "return_to");
@@ -218,6 +223,7 @@ export async function createRequirement(_state: FormState, form: FormData): Prom
     .insert({ ...fields, project_id: projectId, workspace_id: project.workspace_id, creator_id: userId })
     .select("id").single();
   if (error || !data) return { error: "No se pudo crear el requisito." };
+  after(() => runDocumentGitHubAutomation({ projectId, sourceType: "requirement", sourceId: data.id, actorId: userId }));
   revalidatePath(`/projects/${projectId}`);
   redirect(requirementUrl(projectId, data.id));
 }
@@ -234,6 +240,7 @@ export async function updateRequirement(_state: FormState, form: FormData): Prom
     .eq("id", requirementId).eq("project_id", projectId).eq("workspace_id", project.workspace_id)
     .select("id").maybeSingle();
   if (error || !data) return { error: "No se pudo guardar el requisito." };
+  after(() => runDocumentGitHubAutomation({ projectId, sourceType: "requirement", sourceId: requirementId, actorId: userId }));
   revalidatePath(`/projects/${projectId}`);
   revalidatePath(requirementUrl(projectId, requirementId));
   redirect(requirementUrl(projectId, requirementId));

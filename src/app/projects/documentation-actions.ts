@@ -3,6 +3,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import {
   decisionStatuses,
   diagramKinds,
@@ -12,6 +13,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { getProjectAccess } from "@/lib/project-access";
 import { withSuccessToast } from "@/lib/success-toast";
+import { runDocumentGitHubAutomation } from "@/lib/github/automation";
 
 export type DocumentationFormState = { error: string | null };
 
@@ -98,6 +100,10 @@ export async function saveDecision(
       ...values, project_id: projectId, workspace_id: project.workspace_id, creator_id: project.userId,
     }).select("id").single();
   if (result.error || !result.data) return { error: "No se pudo guardar la decisión." };
+  const savedDecisionId = result.data.id;
+  after(() => runDocumentGitHubAutomation({
+    projectId, sourceType: "decision", sourceId: savedDecisionId, actorId: project.userId,
+  }));
   revalidatePath(`/projects/${projectId}`);
   const decisionPath = `/projects/${projectId}/documentation/decisions/${result.data.id}`;
   revalidatePath(decisionPath);
@@ -137,6 +143,10 @@ export async function saveDiagram(
       ...values, project_id: projectId, workspace_id: project.workspace_id, creator_id: project.userId,
     }).select("id").single();
   if (result.error || !result.data) return { error: "No se pudo guardar el diagrama." };
+  const savedDiagramId = result.data.id;
+  after(() => runDocumentGitHubAutomation({
+    projectId, sourceType: "diagram", sourceId: savedDiagramId, actorId: project.userId,
+  }));
   revalidatePath(`/projects/${projectId}`);
   const diagramPath = `/projects/${projectId}/documentation/diagrams/${result.data.id}`;
   revalidatePath(diagramPath);

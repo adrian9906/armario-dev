@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { processGitHubAutomationWebhook } from "@/lib/github/automation";
 import { getGitHubWebhookSecret } from "@/lib/github/env";
 import { verifyGitHubWebhookSignature } from "@/lib/github/webhook";
 
@@ -60,8 +61,17 @@ export async function POST(request: Request) {
     await admin.from("github_installations").update(values).eq("installation_id", installation.id);
   }
 
-  await admin.from("github_webhook_deliveries")
-    .update({ status: "processed", processed_at: new Date().toISOString(), attempt_count: 1 })
-    .eq("delivery_id", deliveryId);
-  return Response.json({ accepted: true, event, deliveryId }, { status: 202 });
+  try {
+    const automation = await processGitHubAutomationWebhook({ event, action, deliveryId, body });
+    await admin.from("github_webhook_deliveries")
+      .update({ status: automation.processed ? "processed" : "ignored", processed_at: new Date().toISOString(), attempt_count: 1 })
+      .eq("delivery_id", deliveryId);
+    return Response.json({ accepted: true, event, deliveryId, automation }, { status: 202 });
+  } catch (automationError) {
+    const message = automationError instanceof Error ? automationError.message : "github_automation_failed";
+    await admin.from("github_webhook_deliveries")
+      .update({ status: "failed", processed_at: new Date().toISOString(), attempt_count: 1, error: message.slice(0, 2000) })
+      .eq("delivery_id", deliveryId);
+    return Response.json({ error: "El evento fue recibido, pero no pudo sincronizarse." }, { status: 500 });
+  }
 }
