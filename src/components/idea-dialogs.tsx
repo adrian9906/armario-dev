@@ -14,7 +14,7 @@ import { Spinner } from "@/components/ui/spinner";
 type IdeaValues = { id: string; title: string; description: string; kind: string | null; tags: string[]; status: string };
 const initialState: FormState = { error: null, success: null };
 
-export function CreateIdeaDialog({ workspaceId, compact = false }: { workspaceId: string; compact?: boolean }) {
+export function CreateIdeaDialog({ workspaceId, compact = false, buttonLabel }: { workspaceId: string; compact?: boolean; buttonLabel?: string }) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const finish = useCallback(() => {
@@ -23,7 +23,7 @@ export function CreateIdeaDialog({ workspaceId, compact = false }: { workspaceId
   }, [router]);
 
   return <Dialog open={open} onOpenChange={setOpen}>
-    <DialogTrigger render={<Button />}><Plus data-icon="inline-start" />{compact ? "Crear la primera idea" : "Nueva idea"}</DialogTrigger>
+    <DialogTrigger render={<Button />}><Plus data-icon="inline-start" />{buttonLabel ?? (compact ? "Crear la primera idea" : "Nueva idea")}</DialogTrigger>
     <DialogContent>
       <DialogHeader>
         <span className="mb-2 flex size-12 items-center justify-center rounded-2xl bg-pastel-sky"><Lightbulb aria-hidden /></span>

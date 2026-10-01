@@ -8,19 +8,32 @@ import {
   Activity,
   Bell,
   BookOpen,
+  ChevronDown,
   Columns3,
   FolderKanban,
   GitFork,
   Lightbulb,
+  LayoutDashboard,
   ListTodo,
   KeyRound,
   Plus,
+  Search,
   Settings2,
-  Sparkles,
   Users,
 } from "lucide-react";
 import { Brand } from "@/components/brand";
+import { CreateIdeaDialog } from "@/components/idea-dialogs";
 import { CreateWorkspaceForm } from "@/components/phase-one-forms";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Sidebar,
   SidebarContent,
@@ -48,7 +61,7 @@ const roleNames: Record<string, string> = {
 };
 
 const sectionNames: Record<Section, string> = {
-  overview: "Vista general",
+  overview: "Inicio",
   ideas: "Ideas",
   projects: "Proyectos",
   activity: "Actividad",
@@ -96,7 +109,7 @@ export function AppShell({
 
   const projectItems = project
     ? [
-        { value: "overview", label: "Resumen", icon: Sparkles },
+        { value: "overview", label: "Resumen", icon: LayoutDashboard },
         { value: "tasks", label: "Tareas", icon: ListTodo },
         { value: "board", label: "Tablero", icon: Columns3 },
         { value: "requirements", label: "Requisitos", icon: BookOpen },
@@ -109,14 +122,14 @@ export function AppShell({
 
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
-      <Sidebar variant="inset" collapsible="icon">
+      <Sidebar variant="sidebar" collapsible="icon" className="top-0 h-svh">
         <SidebarHeader className="h-20 justify-center border-b border-sidebar-border px-5 group-data-[collapsible=icon]:px-2">
           <Brand href={workspaceHref(activeSpace.id, "overview")} />
         </SidebarHeader>
-        <SidebarContent className="py-3">
+        <SidebarContent className="px-2 py-5">
           {!project ? <>
             <SidebarGroup>
-              <SidebarGroupLabel>Espacios</SidebarGroupLabel>
+              <SidebarGroupLabel className="text-[0.68rem] font-bold tracking-[0.12em] uppercase">Espacio de trabajo</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {spaces.map((space) => (
@@ -134,7 +147,7 @@ export function AppShell({
                     </SidebarMenuItem>
                   ))}
                 </SidebarMenu>
-                <details className="mt-4 rounded-xl border border-sidebar-border bg-card p-3 group-data-[collapsible=icon]:hidden">
+                <details className="mt-4 rounded-2xl border border-sidebar-border bg-card p-3 group-data-[collapsible=icon]:hidden">
                   <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-semibold text-primary">
                     <Plus className="size-4" aria-hidden /> Crear espacio
                   </summary>
@@ -166,15 +179,15 @@ export function AppShell({
             </SidebarGroup>}
 
             <SidebarGroup>
-              <SidebarGroupLabel>En {activeSpace.name}</SidebarGroupLabel>
+              <SidebarGroupLabel className="sr-only">Navegación de {activeSpace.name}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  <WorkspaceItem section="overview" label="Vista general" icon={Sparkles} active={activeSection} workspaceId={activeSpace.id} />
+                  <WorkspaceItem section="overview" label="Inicio" icon={LayoutDashboard} active={activeSection} workspaceId={activeSpace.id} />
                   <WorkspaceItem section="ideas" label="Ideas" icon={Lightbulb} active={activeSection} workspaceId={activeSpace.id} />
                   <WorkspaceItem section="projects" label="Proyectos" icon={FolderKanban} active={activeSection} workspaceId={activeSpace.id} />
                   <WorkspaceItem section="activity" label="Actividad" icon={Activity} active={activeSection} workspaceId={activeSpace.id} />
                   <WorkspaceItem section="notifications" label={unreadNotifications ? `Notificaciones (${unreadNotifications})` : "Notificaciones"} icon={Bell} active={activeSection} workspaceId={activeSpace.id} />
-                  <WorkspaceItem section="team" label="Personas" icon={Users} active={activeSection} workspaceId={activeSpace.id} />
+                  <WorkspaceItem section="team" label="Miembros y roles" icon={Users} active={activeSection} workspaceId={activeSpace.id} />
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
@@ -182,8 +195,8 @@ export function AppShell({
             <SidebarGroup>
               <SidebarGroupLabel>Proyecto actual</SidebarGroupLabel>
               <SidebarGroupContent>
-                <div className="mb-4 flex items-center gap-3 rounded-xl bg-pastel-mint/70 p-3 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-2">
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-card text-primary shadow-sm"><FolderKanban className="size-4" aria-hidden /></span>
+                <div className="mb-5 flex items-center gap-3 rounded-2xl bg-pastel-mint/75 p-3 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-2">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-card text-primary shadow-sm"><FolderKanban className="size-4" aria-hidden /></span>
                   <div className="min-w-0 group-data-[collapsible=icon]:hidden">
                     <p className="truncate text-sm font-semibold">{project.title}</p>
                     <p className="truncate text-xs text-muted-foreground">{activeSpace.name}</p>
@@ -209,29 +222,56 @@ export function AppShell({
         </SidebarContent>
         <SidebarFooter className="gap-3 border-t border-sidebar-border p-4 group-data-[collapsible=icon]:px-2">
           {project && <SidebarMenu><SidebarMenuItem><SidebarMenuButton tooltip="Volver al menú" render={<Link href={workspaceHref(activeSpace.id, "projects")} />}><ArrowLeft aria-hidden /><span>Volver al menú</span></SidebarMenuButton></SidebarMenuItem></SidebarMenu>}
-          <div className="flex items-center gap-3 px-2 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
-            <UserButton />
-            <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-sm font-semibold">{userName}</p>
-              <p className="text-xs text-muted-foreground">{roleNames[role] ?? role}</p>
-            </div>
-          </div>
+          <SidebarMenu><SidebarMenuItem><SidebarMenuButton tooltip="Configuración" render={<Link href={workspaceHref(activeSpace.id, "team")} />}><Settings2 aria-hidden /><span>Configuración</span></SidebarMenuButton></SidebarMenuItem></SidebarMenu>
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
 
-      <div className="relative flex min-h-svh min-w-0 flex-1 flex-col bg-background md:peer-data-[variant=inset]:m-2 md:peer-data-[variant=inset]:ml-0 md:peer-data-[variant=inset]:rounded-2xl md:peer-data-[variant=inset]:shadow-sm md:peer-data-[variant=inset]:peer-data-[state=collapsed]:ml-2">
-        <header className="sticky top-0 z-30 flex h-20 shrink-0 items-center gap-3 border-b border-border/70 bg-card/90 px-5 backdrop-blur-md sm:px-8 lg:px-10">
-          <SidebarTrigger />
-          <nav aria-label="Ruta actual" className="flex min-w-0 items-center gap-2 text-sm">
-            <Link href={workspaceHref(activeSpace.id, "overview")} className="truncate text-muted-foreground transition-colors hover:text-foreground">
-              {activeSpace.name}
-            </Link>
-            {project && <><span className="text-border">/</span><Link href={`/projects/${project.id}`} className="hidden truncate text-muted-foreground transition-colors hover:text-foreground sm:block">{project.title}</Link></>}
-            <span className="text-border">/</span>
-            <span className="truncate font-semibold text-foreground">{headerLabel ?? (project ? projectItems.find((item) => item.value === projectView)?.label : sectionNames[activeSection])}</span>
-          </nav>
+      <div className="relative flex min-h-svh min-w-0 flex-1 flex-col bg-transparent">
+        <header className="sticky top-0 z-30 flex h-20 shrink-0 items-center gap-3 border-b border-border/80 bg-card/94 px-4 backdrop-blur-xl sm:px-6 xl:px-8">
+          <SidebarTrigger className="md:hidden" />
+          <DropdownMenu>
+            <DropdownMenuTrigger className={buttonVariants({ variant: "secondary", className: "max-w-56 justify-between px-4" })}>
+              <span className="truncate"><span className="mr-2 inline-block size-2 rounded-full bg-primary" />{activeSpace.name}</span>
+              <ChevronDown className="size-4" aria-hidden />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="min-w-64 p-2" align="start" sideOffset={10}>
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Espacios disponibles</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {spaces.map((space) => <DropdownMenuItem key={space.id} className="rounded-xl p-2.5" render={<Link href={workspaceHref(space.id, "overview")} />}>
+                  <span className={`flex size-7 items-center justify-center rounded-lg text-xs font-bold ${space.is_personal ? "bg-pastel-mint" : "bg-pastel-lavender"}`}>{space.name[0]?.toUpperCase()}</span>
+                  <span className="truncate">{space.name}</span>
+                </DropdownMenuItem>)}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <form action="/dashboard" className="pill-surface mx-auto hidden h-11 max-w-2xl flex-1 items-center gap-2 px-4 lg:flex">
+            <input type="hidden" name="workspace" value={activeSpace.id} />
+            <input type="hidden" name="view" value="ideas" />
+            <Search className="size-4.5 shrink-0 text-muted-foreground" aria-hidden />
+            <input name="q" aria-label="Buscar ideas" placeholder="Buscar ideas, proyectos y tareas…" className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
+            <kbd className="rounded-lg border border-border bg-card px-2 py-0.5 text-[0.68rem] text-muted-foreground">⌘K</kbd>
+          </form>
+          <div className="ml-auto flex items-center gap-1.5">
+            {["owner", "admin", "editor"].includes(role) && <div className="hidden sm:block"><CreateIdeaDialog workspaceId={activeSpace.id} /></div>}
+            <Button variant="ghost" size="icon" render={<Link href={workspaceHref(activeSpace.id, "notifications")} />} aria-label="Notificaciones" className="relative">
+              <Bell aria-hidden />
+              {unreadNotifications > 0 && <span className="absolute right-2 top-2 size-2 rounded-full bg-primary ring-2 ring-card" />}
+            </Button>
+            <div className="ml-1 flex items-center gap-2 border-l border-border pl-3">
+              <UserButton />
+              <div className="hidden min-w-0 2xl:block"><p className="max-w-32 truncate text-xs font-semibold">{userName}</p><p className="text-[0.68rem] text-muted-foreground">{roleNames[role] ?? role}</p></div>
+            </div>
+          </div>
         </header>
+        {(project || activeSection !== "overview") && <div className="border-b border-border/70 bg-card/75 px-5 py-2.5 backdrop-blur sm:px-8 lg:px-10">
+          <nav aria-label="Ruta actual" className="flex min-w-0 items-center gap-2 text-xs">
+            <Link href={workspaceHref(activeSpace.id, "overview")} className="truncate font-medium text-muted-foreground transition-colors hover:text-foreground">{activeSpace.name}</Link>
+            {project && <><span className="text-border">/</span><Link href={`/projects/${project.id}`} className="hidden truncate text-muted-foreground transition-colors hover:text-foreground sm:block">{project.title}</Link></>}
+            <span className="text-border">/</span><span className="truncate font-semibold text-primary">{headerLabel ?? (project ? projectItems.find((item) => item.value === projectView)?.label : sectionNames[activeSection])}</span>
+          </nav>
+        </div>}
         {children}
       </div>
     </SidebarProvider>
@@ -241,7 +281,7 @@ export function AppShell({
 function WorkspaceItem({ section, label, icon: Icon, active, workspaceId }: {
   section: Section;
   label: string;
-  icon: typeof Sparkles;
+  icon: typeof LayoutDashboard;
   active: Section;
   workspaceId: string;
 }) {

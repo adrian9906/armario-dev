@@ -5,12 +5,12 @@ import { Toaster as Sonner, type ToasterProps } from "sonner";
 function Toaster(props: ToasterProps) {
   return (
     <Sonner
-      position="bottom-right"
+      position="top-right"
       closeButton
       richColors
       toastOptions={{
         classNames: {
-          toast: "group toast border-0 text-foreground shadow-xl",
+          toast: "group toast rounded-2xl border-0 text-foreground shadow-2xl",
           title: "font-semibold",
           description: "text-foreground/75",
           actionButton: "bg-primary text-primary-foreground",

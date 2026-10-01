@@ -15,7 +15,7 @@ const clean = (value: string | null | undefined) => value?.trim() || "Sin defini
 const slug = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
   .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "proyecto";
 
-export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   await auth.protect();
   const { id } = await context.params;
   const db = createClient();
@@ -84,10 +84,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   }
   if (!tasks.data?.some((row) => row.status !== "archived")) lines.push("Sin tareas activas.");
 
+  const preview = new URL(request.url).searchParams.get("preview") === "1";
   return new Response(lines.join("\n"), {
     headers: {
       "Content-Type": "text/markdown; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${slug(project.title)}.md"`,
+      "Content-Disposition": `${preview ? "inline" : "attachment"}; filename="${slug(project.title)}.md"`,
       "Cache-Control": "private, no-store",
     },
   });

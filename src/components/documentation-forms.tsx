@@ -171,7 +171,7 @@ export function DiagramForm({ projectId, diagram, initialKind, initialSource, re
         <FieldDescription>Al cambiarla se reemplaza el contenido editable con la plantilla elegida.</FieldDescription>
       </Field>
     </div>
-    <DiagramEditor value={source} onChange={setSource} readOnly={readOnly} />
+    <DiagramEditor value={source} onChange={setSource} readOnly={readOnly} resetKey={kind} />
     {diagram && !readOnly && <Field><FieldLabel htmlFor="diagram-change-summary">Resumen de cambios</FieldLabel><FieldDescription>Ayuda al equipo a entender qué cambió en esta versión.</FieldDescription><Input id="diagram-change-summary" name="change_summary" maxLength={500} placeholder="Ej. Añadido el flujo de recuperación de contraseña" /></Field>}
     {state.error && <FieldError>{state.error}</FieldError>}
     {!readOnly && <Submit pendingLabel={diagram ? "Guardando…" : "Creando…"}>{diagram ? "Guardar diagrama" : "Crear diagrama"}</Submit>}

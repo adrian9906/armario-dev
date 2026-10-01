@@ -1,18 +1,20 @@
+@import "@xyflow/react/dist/style.css" layer(base);
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@clerk/ui/themes/shadcn.css";
 @import "@fontsource-variable/instrument-sans/wght.css";
 @import "@fontsource-variable/manrope/wght.css";
+@import "@fontsource-variable/plus-jakarta-sans/wght.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "Instrument Sans Variable", sans-serif;
+  --font-sans: "Plus Jakarta Sans Variable", "Instrument Sans Variable", sans-serif;
   --font-mono: ui-monospace, monospace;
-  --font-heading: "Manrope Variable", sans-serif;
+  --font-heading: "Plus Jakarta Sans Variable", "Manrope Variable", sans-serif;
   --color-pastel-mint: var(--pastel-mint);
   --color-pastel-sky: var(--pastel-sky);
   --color-pastel-peach: var(--pastel-peach);
@@ -57,24 +59,24 @@
 }
 
 :root {
-  --background: #f5f6f8;
-  --foreground: #333333;
+  --background: #f8f7ff;
+  --foreground: #171927;
   --card: #ffffff;
-  --card-foreground: #333333;
+  --card-foreground: #171927;
   --popover: #ffffff;
-  --popover-foreground: #333333;
-  --primary: #6161ff;
+  --popover-foreground: #171927;
+  --primary: #5b5cf6;
   --primary-foreground: #ffffff;
   --secondary: #e7ecff;
-  --secondary-foreground: #333333;
-  --muted: #f5f6f8;
-  --muted-foreground: #535768;
+  --secondary-foreground: #20223a;
+  --muted: #f0f1fa;
+  --muted-foreground: #65687a;
   --accent: #eddff7;
-  --accent-foreground: #333333;
+  --accent-foreground: #20223a;
   --destructive: oklch(0.577 0.245 27.325);
-  --border: #d0d4e4;
-  --input: #d0d4e4;
-  --ring: #6161ff;
+  --border: #e1e2ee;
+  --input: #d6d8e8;
+  --ring: #5b5cf6;
   --chart-1: #6161ff;
   --chart-2: #bcfe90;
   --chart-3: #abf0ff;
@@ -82,18 +84,18 @@
   --chart-5: #ffe6d4;
   --pastel-mint: #bcfe90;
   --pastel-sky: #abf0ff;
-  --pastel-peach: #ffe6d4;
+  --pastel-peach: #ffe4d3;
   --pastel-lavender: #eddff7;
   --highlight: #fde68a;
-  --radius: 0.625rem;
+  --radius: 0.875rem;
   --sidebar: #ffffff;
-  --sidebar-foreground: #333333;
-  --sidebar-primary: #6161ff;
+  --sidebar-foreground: #27293a;
+  --sidebar-primary: #5b5cf6;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e7ecff;
-  --sidebar-accent-foreground: #333333;
-  --sidebar-border: #d0d4e4;
-  --sidebar-ring: #6161ff;
+  --sidebar-accent: #ececff;
+  --sidebar-accent-foreground: #252552;
+  --sidebar-border: #ececf3;
+  --sidebar-ring: #5b5cf6;
 }
 
 @layer base {
@@ -102,16 +104,20 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-size: 1rem;
-    line-height: 1.6;
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    background-image:
+      radial-gradient(circle at 76% 8%, rgb(231 236 255 / 0.72), transparent 28rem),
+      linear-gradient(180deg, #fbfaff 0%, var(--background) 28rem);
+    background-attachment: fixed;
   }
   html {
     @apply font-sans;
   }
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-heading);
-    letter-spacing: -0.035em;
-    line-height: 1.18;
+    letter-spacing: -0.045em;
+    line-height: 1.12;
   }
   ::selection {
     background: var(--secondary);
@@ -119,14 +125,113 @@
   }
 }
 
-[data-slot="button"] { border-radius: 11px; }
-[data-slot="card"] {
-  border-radius: 18px;
-  box-shadow: 0 2px 8px rgb(51 51 51 / 0.035), 0 14px 34px rgb(51 51 51 / 0.035);
+[data-slot="button"] {
+  border-radius: 999px;
+  font-weight: 600;
 }
-[data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"] { border-radius: 11px; }
+[data-slot="card"] {
+  border-radius: 24px;
+  box-shadow: 0 1px 2px rgb(30 31 55 / 0.025), 0 16px 48px rgb(45 43 91 / 0.055);
+}
+[data-slot="card-header"] { border-radius: 24px 24px 0 0; }
+[data-slot="card-footer"] { border-radius: 0 0 24px 24px; }
+[data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"] {
+  border-radius: 14px;
+  background-color: rgb(255 255 255 / 0.9);
+}
+[data-slot="dialog-content"] {
+  border-radius: 28px;
+  box-shadow: 0 28px 90px rgb(24 25 50 / 0.24);
+}
+[data-slot="dialog-overlay"] { background: rgb(29 30 48 / 0.34); }
+[data-slot="badge"] { letter-spacing: -0.01em; }
+[data-slot="sidebar-menu-button"][data-active] {
+  background: var(--sidebar-primary);
+  color: var(--sidebar-primary-foreground);
+  box-shadow: 0 8px 22px rgb(91 92 246 / 0.2);
+}
+[data-slot="sidebar-menu-button"][data-active]:hover {
+  background: color-mix(in srgb, var(--sidebar-primary) 92%, black);
+  color: var(--sidebar-primary-foreground);
+}
+[data-slot="progress-track"] { height: 0.45rem; }
+[data-slot="select-content"], [data-slot="dropdown-menu-content"] { border-radius: 16px; }
+[data-slot="button"]:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
 [data-slot="card"]:has(a:hover) {
-  box-shadow: 0 6px 16px rgb(51 51 51 / 0.045), 0 18px 38px rgb(51 51 51 / 0.05);
+  box-shadow: 0 4px 12px rgb(30 31 55 / 0.04), 0 22px 54px rgb(45 43 91 / 0.09);
+}
+
+.architecture-flow .react-flow__controls-button {
+  border-bottom-color: var(--border);
+  background: var(--card);
+  fill: var(--foreground);
+}
+.architecture-flow .react-flow__controls-button:hover { background: var(--muted); }
+.architecture-flow .react-flow__minimap { border-radius: 0.75rem; }
+.architecture-flow .react-flow__edge-path { stroke: var(--primary); stroke-width: 2; }
+.architecture-flow .react-flow__edge-textbg { fill: var(--card); }
+.architecture-flow .react-flow__edge-text { fill: var(--foreground); font-size: 11px; }
+.architecture-flow .react-flow__attribution { display: none; }
+
+.workspace-canvas {
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding: clamp(1.5rem, 3vw, 3rem);
+}
+
+.workspace-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 1.75rem;
+  border: 0;
+  border-radius: 999px;
+  padding-inline: 0.85rem;
+  background: var(--pastel-lavender);
+  color: #34316a;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.workspace-title {
+  max-width: 880px;
+  font-size: clamp(2.2rem, 4.2vw, 4.65rem);
+  font-weight: 400;
+  line-height: 0.98;
+  letter-spacing: -0.065em;
+}
+
+.workspace-subtitle {
+  max-width: 720px;
+  color: var(--muted-foreground);
+  font-size: clamp(0.95rem, 1.3vw, 1.08rem);
+  line-height: 1.65;
+}
+
+.metric-card {
+  min-height: 164px;
+  justify-content: space-between;
+}
+
+.metric-value {
+  font-size: clamp(2.6rem, 4vw, 4rem);
+  font-weight: 500;
+  line-height: 0.95;
+  letter-spacing: -0.06em;
+}
+
+.content-panel {
+  border: 0;
+  background: rgb(255 255 255 / 0.94);
+}
+
+.pill-surface {
+  border-radius: 999px;
+  background: #f0f1fb;
+  box-shadow: inset 0 0 0 1px rgb(75 77 120 / 0.06);
 }
 [data-technology-catalog] {
   scrollbar-color: var(--primary) var(--muted);

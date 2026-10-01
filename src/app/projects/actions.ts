@@ -56,9 +56,10 @@ export async function convertIdea(_state: FormState, form: FormData): Promise<Fo
   const userId = await actor();
   const ideaId = read(form, "idea_id");
   const kind = read(form, "kind");
+  const objective = read(form, "objective");
   const modules = modulesFrom(form);
-  if (!uuid.test(ideaId) || !inOptions(kind, projectKinds) || !modules)
-    return { error: "Revisa el tipo y los módulos elegidos." };
+  if (!uuid.test(ideaId) || !inOptions(kind, projectKinds) || !modules || objective.length > 10000)
+    return { error: "Revisa el tipo, el objetivo y los módulos elegidos." };
   const db = createClient();
   const { data: idea } = await db.from("ideas").select("workspace_id").eq("id", ideaId).maybeSingle();
   if (!idea) return { error: "La idea ya no está disponible." };
@@ -67,7 +68,7 @@ export async function convertIdea(_state: FormState, form: FormData): Promise<Fo
   if (!membership || !["owner", "admin", "editor"].includes(membership.role))
     return { error: "No tienes permiso para convertir esta idea." };
   const { data: projectId, error } = await db.rpc("convert_idea_to_project", {
-    target_idea_id: ideaId, target_kind: kind, selected_modules: modules,
+    target_idea_id: ideaId, target_kind: kind, selected_modules: modules, target_objective: objective,
   });
   if (error || !projectId) return { error: "No se pudo convertir la idea. Actualiza la página e inténtalo otra vez." };
   revalidatePath("/dashboard");
