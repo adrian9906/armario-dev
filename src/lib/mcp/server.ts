@@ -34,7 +34,11 @@ export async function listUserWorkspaces(userId: string) {
 
   if (error) throw new Error("mcp_workspace_list_failed");
   return (data ?? []).map((membership) => {
-    const workspace = membership.workspaces[0];
+    // PostgREST returns a to-one relation as an object, but some relationship
+    // shapes can arrive as an array. Handle both to avoid dropping the name.
+    const workspace = Array.isArray(membership.workspaces)
+      ? membership.workspaces[0]
+      : membership.workspaces;
     return {
       id: membership.workspace_id,
       name: workspace?.name ?? "Espacio sin nombre",
