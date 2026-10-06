@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { z } from "zod";
 import { fetchUserProjectDocument, getMcpUserId, getUserProjectContext, listUserProjects, listUserWorkspaces, listWorkspaceIdeas, MCP_DOCUMENT_TYPES, searchUserProject } from "@/lib/mcp/server";
+import { fetchIndexedRepositoryFile, indexProjectRepository, searchIndexedRepositoryFiles } from "@/lib/mcp/repository";
 
 const handler = createMcpHandler((server) => {
   server.registerTool(
@@ -120,9 +121,63 @@ const handler = createMcpHandler((server) => {
       }
     },
   );
+
+  server.registerTool(
+    "index_project_repository",
+    {
+      title: "Index linked GitHub repository",
+      description: "Indexes a bounded set of safe text files from the linked repository's default branch. Manager access is required. The result records the exact source commit SHA; this is on-demand and read-only on GitHub.",
+      inputSchema: z.object({ projectId: z.string().uuid() }),
+    },
+    async ({ projectId }, context) => {
+      try {
+        const result = await indexProjectRepository(getMcpUserId(context), projectId);
+        if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      } catch {
+        return { isError: true, content: [{ type: "text", text: "No se pudo indexar el repositorio. Comprueba los permisos de lectura de Contents de la GitHub App e inténtalo de nuevo." }] };
+      }
+    },
+  );
+
+  server.registerTool(
+    "search_repository_files",
+    {
+      title: "Search indexed repository files",
+      description: "Searches text files indexed from the linked repository's latest on-demand sync. Results include path, excerpt, and source commit SHA. Call index_project_repository first if no index exists.",
+      inputSchema: z.object({ projectId: z.string().uuid(), query: z.string().trim().min(2).max(200), limit: z.number().int().min(1).max(20).optional() }),
+    },
+    async ({ projectId, query, limit }, context) => {
+      try {
+        const result = await searchIndexedRepositoryFiles(getMcpUserId(context), projectId, query, limit);
+        if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      } catch {
+        return { isError: true, content: [{ type: "text", text: "No se pudo buscar en los archivos indexados del repositorio." }] };
+      }
+    },
+  );
+
+  server.registerTool(
+    "fetch_repository_file",
+    {
+      title: "Fetch indexed repository file",
+      description: "Reads one file from the current repository index, including its source commit SHA. Only paths present in the linked project's active index can be fetched.",
+      inputSchema: z.object({ projectId: z.string().uuid(), path: z.string().min(1).max(1024) }),
+    },
+    async ({ projectId, path }, context) => {
+      try {
+        const file = await fetchIndexedRepositoryFile(getMcpUserId(context), projectId, path);
+        if (!file) return { isError: true, content: [{ type: "text", text: "No se encontró ese archivo en el índice actual del repositorio accesible." }] };
+        return { content: [{ type: "text", text: JSON.stringify(file) }] };
+      } catch {
+        return { isError: true, content: [{ type: "text", text: "No se pudo cargar el archivo indexado." }] };
+      }
+    },
+  );
 }, {
   serverInfo: { name: "armario-dev", version: "0.1.0" },
-  instructions: "Armario Dev project workspace. All exposed tools are read-only. Data is scoped to the authenticated user's workspace and project permissions. Use search_project to discover relevant knowledge, then fetch_document when the full contents are needed.",
+  instructions: "Armario Dev project workspace. All project and GitHub content tools are read-only; index_project_repository only writes or replaces the server-side search snapshot and never modifies GitHub. Data is scoped to the authenticated user's workspace and project permissions. Use search_project to discover structured knowledge, then fetch_document for full details. For repository source, call index_project_repository on demand, then search_repository_files and fetch_repository_file; responses identify the indexed commit SHA.",
 });
 
 const authenticatedHandler = withMcpAuth(

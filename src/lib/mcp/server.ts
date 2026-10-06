@@ -32,7 +32,7 @@ type AccessibleProject = {
   updated_at: string;
 };
 
-async function getAccessibleProject(admin: AdminClient, userId: string, projectId: string) {
+export async function getAccessibleProject(admin: AdminClient, userId: string, projectId: string) {
   const { data: project, error: projectError } = await admin.from("projects")
     .select("id,workspace_id,origin_idea_id,creator_id,title,objective,kind,stage,visibility,created_at,updated_at")
     .eq("id", projectId)
