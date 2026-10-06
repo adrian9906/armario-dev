@@ -15,6 +15,17 @@ export const MCP_REPOSITORY_INDEX_LIMITS = {
   treeEntries: 20_000,
 } as const;
 
+export function parseRepositoryPush(body: Record<string, unknown>) {
+  const repository = body.repository as { id?: number } | undefined;
+  const repositoryId = repository?.id;
+  const ref = typeof body.ref === "string" ? body.ref : "";
+  const sourceCommitSha = typeof body.after === "string" ? body.after.toLowerCase() : "";
+  const branch = ref.startsWith("refs/heads/") ? ref.slice("refs/heads/".length) : "";
+  if (typeof repositoryId !== "number" || !Number.isSafeInteger(repositoryId) || repositoryId <= 0 || !branch || branch.length > 255
+    || !/^[a-f0-9]{40}$/.test(sourceCommitSha) || /^0+$/.test(sourceCommitSha)) return null;
+  return { repositoryId, branch, sourceCommitSha };
+}
+
 export function isIndexableRepositoryPath(path: string, size: number) {
   if (!path || path.startsWith("/") || path.split("/").some((part) => part === ".." || part === ".") || excludedPath.test(path)) return false;
   if (!Number.isSafeInteger(size) || size < 0 || size > MCP_REPOSITORY_INDEX_LIMITS.fileBytes) return false;

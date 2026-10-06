@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseRepositoryFiles, decodeGitHubTextBlob, isIndexableRepositoryPath } from "./repository-index";
+import { chooseRepositoryFiles, decodeGitHubTextBlob, isIndexableRepositoryPath, parseRepositoryPush } from "./repository-index";
 
 describe("MCP repository index safety", () => {
   it("accepts common source and documentation files", () => {
@@ -25,5 +25,13 @@ describe("MCP repository index safety", () => {
     expect(decodeGitHubTextBlob(Buffer.from("hola mundo").toString("base64"), "base64")).toBe("hola mundo");
     expect(decodeGitHubTextBlob(Buffer.from([0, 1, 2]).toString("base64"), "base64")).toBeNull();
     expect(() => decodeGitHubTextBlob("//79", "base64")).toThrow();
+  });
+
+  it("accepts only valid push refs and commit SHAs", () => {
+    const sha = "a".repeat(40);
+    expect(parseRepositoryPush({ repository: { id: 42 }, ref: "refs/heads/main", after: sha }))
+      .toEqual({ repositoryId: 42, branch: "main", sourceCommitSha: sha });
+    expect(parseRepositoryPush({ repository: { id: 42 }, ref: "refs/tags/v1", after: sha })).toBeNull();
+    expect(parseRepositoryPush({ repository: { id: 42 }, ref: "refs/heads/main", after: "0".repeat(40) })).toBeNull();
   });
 });

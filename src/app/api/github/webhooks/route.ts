@@ -1,10 +1,13 @@
+import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { processGitHubAutomationWebhook } from "@/lib/github/automation";
 import { getGitHubWebhookSecret } from "@/lib/github/env";
 import { verifyGitHubWebhookSignature } from "@/lib/github/webhook";
+import { enqueueRepositoryIndexForPush, processRepositoryIndexJob } from "@/lib/mcp/repository";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const maximumPayloadBytes = 25 * 1024 * 1024;
 
@@ -47,8 +50,36 @@ export async function POST(request: Request) {
     repository_id: Number.isSafeInteger(repository?.id) ? repository?.id : null,
     payload: body,
   });
-  if (error?.code === "23505") return Response.json({ accepted: true, duplicate: true }, { status: 200 });
+  if (error?.code === "23505") {
+    if (event === "push") {
+      try {
+        const jobId = await enqueueRepositoryIndexForPush(deliveryId, body);
+        if (jobId) after(async () => { await processRepositoryIndexJob(jobId); });
+        return Response.json({ accepted: true, duplicate: true, repositoryIndexQueued: Boolean(jobId) }, { status: 200 });
+      } catch {
+        return Response.json({ error: "El webhook fue recibido, pero no se pudo reponer la tarea de indexación." }, { status: 503 });
+      }
+    }
+    return Response.json({ accepted: true, duplicate: true }, { status: 200 });
+  }
   if (error) return Response.json({ error: "No se pudo registrar el webhook." }, { status: 500 });
+
+  let repositoryIndexJobId: string | null = null;
+  if (event === "push") {
+    try {
+      repositoryIndexJobId = await enqueueRepositoryIndexForPush(deliveryId, body);
+    } catch {
+      await admin.from("github_webhook_deliveries").update({
+        status: "failed", processed_at: new Date().toISOString(), attempt_count: 1,
+        error: "mcp_repository_index_enqueue_failed",
+      }).eq("delivery_id", deliveryId);
+      return Response.json({ error: "No se pudo programar la actualización del índice." }, { status: 503 });
+    }
+    if (repositoryIndexJobId) {
+      const jobId = repositoryIndexJobId;
+      after(async () => { await processRepositoryIndexJob(jobId); });
+    }
+  }
 
   if (event === "installation" && installation?.id) {
     const status = action === "suspend" ? "suspended" : action === "deleted" ? "revoked" : "active";
@@ -66,7 +97,7 @@ export async function POST(request: Request) {
     await admin.from("github_webhook_deliveries")
       .update({ status: automation.processed ? "processed" : "ignored", processed_at: new Date().toISOString(), attempt_count: 1 })
       .eq("delivery_id", deliveryId);
-    return Response.json({ accepted: true, event, deliveryId, automation }, { status: 202 });
+    return Response.json({ accepted: true, event, deliveryId, automation, repositoryIndexQueued: Boolean(repositoryIndexJobId) }, { status: 202 });
   } catch (automationError) {
     const message = automationError instanceof Error ? automationError.message : "github_automation_failed";
     await admin.from("github_webhook_deliveries")
