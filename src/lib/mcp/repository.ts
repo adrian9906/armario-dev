@@ -28,6 +28,10 @@ async function getAccessibleRepository(userId: string, projectId: string) {
   return { admin, access: accessible, installation, repository, config };
 }
 
+export async function getMcpGitHubRepository(userId: string, projectId: string) {
+  return getAccessibleRepository(userId, projectId);
+}
+
 async function inBatches<T, R>(items: T[], batchSize: number, run: (item: T) => Promise<R>) {
   const values: R[] = [];
   for (let start = 0; start < items.length; start += batchSize) {
