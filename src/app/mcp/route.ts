@@ -2,7 +2,7 @@ import { verifyClerkToken } from "@clerk/mcp-tools/next";
 import { auth } from "@clerk/nextjs/server";
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { z } from "zod";
-import { getMcpUserId, getUserProjectContext, listUserProjects, listUserWorkspaces, listWorkspaceIdeas } from "@/lib/mcp/server";
+import { fetchUserProjectDocument, getMcpUserId, getUserProjectContext, listUserProjects, listUserWorkspaces, listWorkspaceIdeas, MCP_DOCUMENT_TYPES, searchUserProject } from "@/lib/mcp/server";
 
 const handler = createMcpHandler((server) => {
   server.registerTool(
@@ -75,9 +75,54 @@ const handler = createMcpHandler((server) => {
       }
     },
   );
+
+  server.registerTool(
+    "search_project",
+    {
+      title: "Search project knowledge",
+      description: "Searches the accessible project's objective, source idea, requirements, tasks, technology decisions, ADRs, and Mermaid diagrams. Returns concise excerpts and document IDs; use fetch_document to read a full result. This tool is read-only.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        query: z.string().trim().min(2).max(200),
+        types: z.array(z.enum(MCP_DOCUMENT_TYPES)).max(MCP_DOCUMENT_TYPES.length).optional(),
+        limit: z.number().int().min(1).max(50).optional(),
+      }),
+    },
+    async ({ projectId, query, types, limit }, context) => {
+      try {
+        const results = await searchUserProject(getMcpUserId(context), projectId, query, types, limit);
+        if (!results) return { isError: true, content: [{ type: "text", text: "No tienes acceso a ese proyecto." }] };
+        return { content: [{ type: "text", text: JSON.stringify(results) }] };
+      } catch {
+        return { isError: true, content: [{ type: "text", text: "No se pudo buscar en el contenido del proyecto." }] };
+      }
+    },
+  );
+
+  server.registerTool(
+    "fetch_document",
+    {
+      title: "Read a project document",
+      description: "Reads one complete project, source idea, requirement, task with checklist, technology entry, architecture decision, or diagram with its recent version and traceability links. Requires both projectId and documentId and returns nothing outside that project. This tool is read-only.",
+      inputSchema: z.object({
+        projectId: z.string().uuid(),
+        type: z.enum(MCP_DOCUMENT_TYPES),
+        documentId: z.string().uuid(),
+      }),
+    },
+    async ({ projectId, type, documentId }, context) => {
+      try {
+        const document = await fetchUserProjectDocument(getMcpUserId(context), projectId, type, documentId);
+        if (!document) return { isError: true, content: [{ type: "text", text: "No se encontró ese documento dentro del proyecto accesible." }] };
+        return { content: [{ type: "text", text: JSON.stringify(document) }] };
+      } catch {
+        return { isError: true, content: [{ type: "text", text: "No se pudo cargar el documento del proyecto." }] };
+      }
+    },
+  );
 }, {
   serverInfo: { name: "armario-dev", version: "0.1.0" },
-  instructions: "Armario Dev project workspace. All exposed tools are read-only in this initial release. Data is scoped to the authenticated user's workspace and project permissions.",
+  instructions: "Armario Dev project workspace. All exposed tools are read-only. Data is scoped to the authenticated user's workspace and project permissions. Use search_project to discover relevant knowledge, then fetch_document when the full contents are needed.",
 });
 
 const authenticatedHandler = withMcpAuth(
