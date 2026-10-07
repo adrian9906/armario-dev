@@ -2,6 +2,8 @@ import { verifyClerkToken } from "@clerk/mcp-tools/next";
 import { auth } from "@clerk/nextjs/server";
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { z } from "zod";
+import { formatMcpGitHubError } from "@/lib/github/api-errors";
+import { serializeMcpOutput } from "@/lib/mcp/output";
 import { fetchUserProjectDocument, getMcpUserId, getUserProjectContext, listUserProjects, listUserWorkspaces, listWorkspaceIdeas, MCP_DOCUMENT_TYPES, searchUserProject } from "@/lib/mcp/server";
 import { fetchIndexedRepositoryFile, indexProjectRepository, searchIndexedRepositoryFiles } from "@/lib/mcp/repository";
 import {
@@ -22,7 +24,7 @@ const handler = createMcpHandler((server) => {
       try {
         const userId = getMcpUserId(context);
         const workspaces = await listUserWorkspaces(userId);
-        return { content: [{ type: "text", text: JSON.stringify(workspaces) }] };
+        return { content: [{ type: "text", text: serializeMcpOutput(workspaces) }] };
       } catch {
         return { isError: true, content: [{ type: "text", text: "No se pudieron cargar tus espacios de trabajo." }] };
       }
@@ -40,7 +42,7 @@ const handler = createMcpHandler((server) => {
       try {
         const ideas = await listWorkspaceIdeas(getMcpUserId(context), workspaceId);
         if (!ideas) return { isError: true, content: [{ type: "text", text: "No tienes acceso a ese espacio de trabajo." }] };
-        return { content: [{ type: "text", text: JSON.stringify(ideas) }] };
+        return { content: [{ type: "text", text: serializeMcpOutput(ideas) }] };
       } catch {
         return { isError: true, content: [{ type: "text", text: "No se pudieron cargar las ideas de ese espacio." }] };
       }
@@ -58,7 +60,7 @@ const handler = createMcpHandler((server) => {
       try {
         const projects = await listUserProjects(getMcpUserId(context), workspaceId);
         if (!projects) return { isError: true, content: [{ type: "text", text: "No tienes acceso a ese espacio de trabajo." }] };
-        return { content: [{ type: "text", text: JSON.stringify(projects) }] };
+        return { content: [{ type: "text", text: serializeMcpOutput(projects) }] };
       } catch {
         return { isError: true, content: [{ type: "text", text: "No se pudieron cargar los proyectos de ese espacio." }] };
       }
@@ -76,7 +78,7 @@ const handler = createMcpHandler((server) => {
       try {
         const project = await getUserProjectContext(getMcpUserId(context), projectId);
         if (!project) return { isError: true, content: [{ type: "text", text: "No tienes acceso a ese proyecto." }] };
-        return { content: [{ type: "text", text: JSON.stringify(project) }] };
+        return { content: [{ type: "text", text: serializeMcpOutput(project) }] };
       } catch {
         return { isError: true, content: [{ type: "text", text: "No se pudo cargar el contexto del proyecto." }] };
       }
@@ -99,7 +101,7 @@ const handler = createMcpHandler((server) => {
       try {
         const results = await searchUserProject(getMcpUserId(context), projectId, query, types, limit);
         if (!results) return { isError: true, content: [{ type: "text", text: "No tienes acceso a ese proyecto." }] };
-        return { content: [{ type: "text", text: JSON.stringify(results) }] };
+        return { content: [{ type: "text", text: serializeMcpOutput(results) }] };
       } catch {
         return { isError: true, content: [{ type: "text", text: "No se pudo buscar en el contenido del proyecto." }] };
       }
@@ -121,7 +123,7 @@ const handler = createMcpHandler((server) => {
       try {
         const document = await fetchUserProjectDocument(getMcpUserId(context), projectId, type, documentId);
         if (!document) return { isError: true, content: [{ type: "text", text: "No se encontró ese documento dentro del proyecto accesible." }] };
-        return { content: [{ type: "text", text: JSON.stringify(document) }] };
+        return { content: [{ type: "text", text: serializeMcpOutput(document) }] };
       } catch {
         return { isError: true, content: [{ type: "text", text: "No se pudo cargar el documento del proyecto." }] };
       }
@@ -139,9 +141,9 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await indexProjectRepository(getMcpUserId(context), projectId);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch {
-        return { isError: true, content: [{ type: "text", text: "No se pudo indexar el repositorio. Comprueba los permisos de lectura de Contents de la GitHub App e inténtalo de nuevo." }] };
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) {
+        return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudo indexar el repositorio. Comprueba los permisos de lectura de Contents de la GitHub App e inténtalo de nuevo.") }] };
       }
     },
   );
@@ -157,7 +159,7 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await searchIndexedRepositoryFiles(getMcpUserId(context), projectId, query, limit);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
       } catch {
         return { isError: true, content: [{ type: "text", text: "No se pudo buscar en los archivos indexados del repositorio." }] };
       }
@@ -175,7 +177,7 @@ const handler = createMcpHandler((server) => {
       try {
         const file = await fetchIndexedRepositoryFile(getMcpUserId(context), projectId, path);
         if (!file) return { isError: true, content: [{ type: "text", text: "No se encontró ese archivo en el índice actual del repositorio accesible." }] };
-        return { content: [{ type: "text", text: JSON.stringify(file) }] };
+        return { content: [{ type: "text", text: serializeMcpOutput(file) }] };
       } catch {
         return { isError: true, content: [{ type: "text", text: "No se pudo cargar el archivo indexado." }] };
       }
@@ -193,8 +195,8 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await getMcpRepositorySnapshot(getMcpUserId(context), projectId);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch { return { isError: true, content: [{ type: "text", text: "No se pudo cargar el repositorio de GitHub." }] }; }
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudo cargar el repositorio de GitHub.") }] }; }
     },
   );
 
@@ -209,8 +211,8 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await listMcpGitHubIssues(getMcpUserId(context), projectId, state);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch { return { isError: true, content: [{ type: "text", text: "No se pudieron cargar los issues de GitHub." }] }; }
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudieron cargar los issues de GitHub.") }] }; }
     },
   );
 
@@ -225,8 +227,8 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await listMcpGitHubPullRequests(getMcpUserId(context), projectId);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch { return { isError: true, content: [{ type: "text", text: "No se pudieron cargar los pull requests." }] }; }
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudieron cargar los pull requests.") }] }; }
     },
   );
 
@@ -241,8 +243,8 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await getMcpGitHubCommit(getMcpUserId(context), projectId, sha);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch { return { isError: true, content: [{ type: "text", text: "No se pudo cargar el commit." }] }; }
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudo cargar el commit.") }] }; }
     },
   );
 
@@ -257,8 +259,8 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await getMcpGitHubPullRequest(getMcpUserId(context), projectId, number);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch { return { isError: true, content: [{ type: "text", text: "No se pudo cargar el pull request." }] }; }
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudo cargar el pull request.") }] }; }
     },
   );
 
@@ -273,8 +275,8 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await createMcpGitHubBranch(getMcpUserId(context), projectId, branch, baseBranch);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch { return { isError: true, content: [{ type: "text", text: "No se pudo crear la rama. Comprueba tu rol, el permiso Contents: write y que el nombre/base sean válidos." }] }; }
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudo crear la rama. Comprueba tu rol, Contents: write y que el nombre/base sean válidos.") }] }; }
     },
   );
 
@@ -293,8 +295,8 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await commitMcpGitHubFiles(getMcpUserId(context), projectId, input);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch { return { isError: true, content: [{ type: "text", text: "No se pudo crear el commit. Comprueba permisos, rama, SHA y límites del contenido." }] }; }
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudo crear el commit. Comprueba permisos, rama, SHA y límites del contenido.") }] }; }
     },
   );
 
@@ -309,8 +311,8 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await createMcpGitHubIssue(getMcpUserId(context), projectId, title, body);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch { return { isError: true, content: [{ type: "text", text: "No se pudo crear el issue. Comprueba el rol y Issues: write." }] }; }
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudo crear el issue. Comprueba el rol y Issues: write.") }] }; }
     },
   );
 
@@ -333,8 +335,8 @@ const handler = createMcpHandler((server) => {
           return { isError: true, content: [{ type: "text", text: "Al reabrir el issue, stateReason debe ser reopened." }] };
         const result = await updateMcpGitHubIssue(getMcpUserId(context), projectId, input);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch { return { isError: true, content: [{ type: "text", text: "No se pudo actualizar el issue. Comprueba el rol y Issues: write." }] }; }
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudo actualizar el issue. Comprueba el rol y Issues: write.") }] }; }
     },
   );
 
@@ -349,8 +351,8 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await createMcpGitHubPullRequest(getMcpUserId(context), projectId, input);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch { return { isError: true, content: [{ type: "text", text: "No se pudo crear el pull request. Comprueba el rol, Pull requests: write y las ramas." }] }; }
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudo crear el pull request. Comprueba el rol, Pull requests: write y las ramas.") }] }; }
     },
   );
 
@@ -366,8 +368,8 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await updateMcpGitHubPullRequest(getMcpUserId(context), projectId, input);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch { return { isError: true, content: [{ type: "text", text: "No se pudo actualizar el pull request. Comprueba el rol y Pull requests: write." }] }; }
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudo actualizar el pull request. Comprueba el rol y Pull requests: write.") }] }; }
     },
   );
 
@@ -382,8 +384,8 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await reviewMcpGitHubPullRequest(getMcpUserId(context), projectId, input);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch { return { isError: true, content: [{ type: "text", text: "No se pudo enviar la revisión. Comprueba el rol y Pull requests: write." }] }; }
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudo enviar la revisión. Comprueba el rol y Pull requests: write.") }] }; }
     },
   );
 
@@ -398,8 +400,8 @@ const handler = createMcpHandler((server) => {
       try {
         const result = await mergeMcpGitHubPullRequest(getMcpUserId(context), projectId, input);
         if (!result) return { isError: true, content: [{ type: "text", text: "No tienes acceso al repositorio vinculado o el proyecto no tiene uno." }] };
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-      } catch { return { isError: true, content: [{ type: "text", text: "No se pudo fusionar el pull request. Comprueba el rol, permiso, estado y SHA actual." }] }; }
+        return { content: [{ type: "text", text: serializeMcpOutput(result) }] };
+      } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudo fusionar el pull request. Comprueba el rol, permiso, estado y SHA actual.") }] }; }
     },
   );
 }, {

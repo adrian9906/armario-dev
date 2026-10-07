@@ -4,6 +4,7 @@ import { createSign } from "node:crypto";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import type { GitHubAppConfig, GitHubOAuthConfig } from "@/lib/github/env";
+import { makeGitHubApiError } from "@/lib/github/api-errors";
 
 const githubApiVersion = "2026-03-10";
 
@@ -75,7 +76,11 @@ async function githubJsonThroughResolvedAddress<T>(url: string, token: string, i
         const status = response.statusCode ?? 500;
         const text = Buffer.concat(chunks).toString("utf8");
         if (status < 200 || status >= 300) {
-          reject(new Error(`github_api_${status}`));
+          const headerEntries: [string, string][] = Object.entries(response.headers).flatMap(([name, value]) =>
+            value === undefined ? [] : [[name, Array.isArray(value) ? value.join(", ") : value] as [string, string]],
+          );
+          const responseHeaders = new Headers(headerEntries);
+          reject(makeGitHubApiError(status, responseHeaders, text));
           return;
         }
         if (!text) {
@@ -118,8 +123,8 @@ export async function githubJson<T>(url: string, token: string, init?: RequestIn
       },
       cache: "no-store",
     });
-    if (!response.ok) throw new Error(`github_api_${response.status}`);
     const text = await response.text();
+    if (!response.ok) throw makeGitHubApiError(response.status, response.headers, text);
     return text ? JSON.parse(text) as T : undefined as T;
   } catch (error) {
     if (!isDnsLookupFailure(error)) throw error;
