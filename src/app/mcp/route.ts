@@ -422,7 +422,7 @@ const handler = createMcpHandler((server) => {
     description: "Creates an idea in a workspace. This changes Armario Dev data and requires an explicit user request plus owner, admin, or editor role.",
     inputSchema: z.object({ workspaceId: z.string().uuid(), title: z.string().trim().min(1).max(160), description: z.string().max(10_000).default(""), kind: z.enum(["web", "mobile", "frontend", "backend", "mixed", "other", "undecided"]).default("undecided"), tags: z.array(z.string().max(30)).max(12).default([]) }),
   }, async (input, context) => {
-    try { return writeSuccess(await createMcpIdea(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    try { return writeSuccess(await createMcpIdea(getMcpUserId(context), input)); }
     catch { return writeFailure("No se pudo crear la idea. Verifica el espacio, los datos y que tengas rol de propietario, administrador o editor."); }
   });
 
@@ -513,7 +513,7 @@ const handler = createMcpHandler((server) => {
     description: "Creates a project directly in a workspace without an idea. This changes Armario Dev and requires explicit user request plus owner/admin/editor workspace access.",
     inputSchema: z.object({ workspaceId: z.string().uuid(), title: z.string().trim().min(1).max(160), objective: z.string().max(10_000).default(""), kind: z.enum(["web", "mobile", "frontend", "backend", "mixed", "other"]), stage: z.enum(["definition", "planning", "development", "published", "archived"]).default("definition"), modules: modulesSchema }),
   }, async (input, context) => {
-    try { return writeSuccess(await createMcpProject(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    try { return writeSuccess(await createMcpProject(getMcpUserId(context), input)); }
     catch { return writeFailure("No se pudo crear el proyecto. Comprueba el espacio, los datos y tu permiso de edición."); }
   });
 

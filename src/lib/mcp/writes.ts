@@ -69,6 +69,15 @@ async function ideaWorkspaceRole(userId: string, workspaceId: string, accessToke
   return data && ["owner", "admin", "editor"].includes(data.role) ? createMcpSupabaseClient(accessToken) : null;
 }
 
+async function ideaWorkspaceAdmin(userId: string, workspaceId: string) {
+  if (!uuid.test(workspaceId)) return null;
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("workspace_memberships").select("role")
+    .eq("workspace_id", workspaceId).eq("user_id", userId).maybeSingle();
+  if (error) throw new Error("mcp_idea_membership_lookup_failed");
+  return data && ["owner", "admin", "editor"].includes(data.role) ? admin : null;
+}
+
 function normalizedTags(tags: string[]) {
   const normalized = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
   if (normalized.length > 12 || normalized.some((tag) => tag.length > 30)) throw new Error("mcp_idea_invalid_tags");
@@ -81,18 +90,31 @@ function validateIdea(title: string, description: string, kind: string, tags: st
   return { title: title.trim(), description, kind, tags: normalizedTags(tags) };
 }
 
-export async function createMcpIdea(userId: string, accessToken: string, input: {
+export async function createMcpIdea(userId: string, input: {
   workspaceId: string; title: string; description: string; kind: string; tags: string[];
 }) {
-  const user = await ideaWorkspaceRole(userId, input.workspaceId, accessToken);
-  if (!user) throw new Error("mcp_idea_write_forbidden");
+  // MCP OAuth tokens are not necessarily the Supabase JWT template used by the web app.
+  // Authorize the verified Clerk identity above, then perform this write with the
+  // server client so a valid MCP session is not rejected by Supabase RLS.
+  const admin = await ideaWorkspaceAdmin(userId, input.workspaceId);
+  if (!admin) throw new Error("mcp_idea_write_forbidden");
   const fields = validateIdea(input.title, input.description, input.kind, input.tags);
-  const { data, error } = await user.from("ideas").insert({
+  const { data, error } = await admin.from("ideas").insert({
     workspace_id: input.workspaceId, author_id: userId, ...fields,
   }).select("id").single();
-  if (error || !data) throw new Error("mcp_idea_create_failed");
+  if (error || !data) {
+    console.error("MCP idea insert failed", { code: error?.code, message: error?.message });
+    throw new Error("mcp_idea_create_failed");
+  }
+  await attributeMcpActivity("idea", data.id, userId);
   revalidatePath("/dashboard", "page");
   return { id: data.id, ...fields, workspaceId: input.workspaceId, status: "active" };
+}
+
+async function attributeMcpActivity(entityType: "idea" | "project", entityId: string, userId: string) {
+  const { error } = await createAdminClient().from("activity_events").update({ actor_id: userId })
+    .eq("entity_type", entityType).eq("entity_id", entityId).eq("action", "created");
+  if (error) console.error("MCP activity actor attribution failed", { entityType, entityId, code: error.code });
 }
 
 export async function updateMcpIdea(userId: string, accessToken: string, input: {
@@ -353,7 +375,7 @@ export async function updateMcpDecision(userId: string, accessToken: string, inp
   return data;
 }
 
-export async function createMcpProject(userId: string, accessToken: string, input: {
+export async function createMcpProject(userId: string, input: {
   workspaceId: string; title: string; objective?: string; kind: string; stage?: string;
   modules?: Partial<Record<"frontend" | "backend" | "database" | "auth", boolean>>;
 }) {
@@ -372,11 +394,17 @@ export async function createMcpProject(userId: string, accessToken: string, inpu
   const modules = Object.fromEntries(moduleOptions.map((option) => [option.value, input.modules?.[option.value] === true]));
   if (input.modules && Object.keys(input.modules).some((key) => !moduleOptions.some((option) => option.value === key)))
     throw new Error("mcp_project_invalid_modules");
-  const db = createMcpSupabaseClient(accessToken);
-  const { data, error } = await db.from("projects").insert({
+  // The workspace membership check above is authoritative for this MCP request;
+  // use the server client because Clerk's MCP OAuth token is not the web app's
+  // Supabase JWT-template token and therefore cannot reliably satisfy Supabase RLS.
+  const { data, error } = await admin.from("projects").insert({
     workspace_id: input.workspaceId, creator_id: userId, title, objective, kind: input.kind, stage, modules,
   }).select("id,title,objective,kind,stage,modules").single();
-  if (error || !data) throw new Error("mcp_project_create_failed");
+  if (error || !data) {
+    console.error("MCP project insert failed", { code: error?.code, message: error?.message });
+    throw new Error("mcp_project_create_failed");
+  }
+  await attributeMcpActivity("project", data.id, userId);
   refreshProject(data.id);
   return { ...data, workspaceId: input.workspaceId };
 }
