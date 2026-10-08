@@ -4,14 +4,23 @@ import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { z } from "zod";
 import { formatMcpGitHubError } from "@/lib/github/api-errors";
 import { serializeMcpOutput } from "@/lib/mcp/output";
-import { fetchUserProjectDocument, getMcpUserId, getUserProjectContext, listUserProjects, listUserWorkspaces, listWorkspaceIdeas, MCP_DOCUMENT_TYPES, searchUserProject } from "@/lib/mcp/server";
+import { fetchUserProjectDocument, getMcpAccessToken, getMcpUserId, getUserProjectContext, listUserProjects, listUserWorkspaces, listWorkspaceIdeas, MCP_DOCUMENT_TYPES, searchUserProject } from "@/lib/mcp/server";
 import { fetchIndexedRepositoryFile, indexProjectRepository, searchIndexedRepositoryFiles } from "@/lib/mcp/repository";
 import {
   commitMcpGitHubFiles, createMcpGitHubBranch, createMcpGitHubIssue, createMcpGitHubPullRequest,
+  createMcpTaskGitHubPullRequest, deleteMcpGitHubBranch,
   getMcpGitHubCommit, getMcpGitHubPullRequest, getMcpRepositorySnapshot, listMcpGitHubIssues,
   listMcpGitHubPullRequests, mergeMcpGitHubPullRequest, reviewMcpGitHubPullRequest,
+  saveMcpGitHubAutomationSettings, synchronizeMcpGitHubTasks,
   updateMcpGitHubIssue, updateMcpGitHubPullRequest,
 } from "@/lib/mcp/github";
+import {
+  addMcpChecklistItem, addMcpComment, convertMcpIdeaToProject, createMcpDecision, createMcpIdea,
+  createMcpProject, createMcpRequirement, createMcpTask, linkMcpDiagram, linkMcpTaskRequirement,
+  listMcpComments, moveMcpProjectItem, restoreMcpDiagramVersion, saveMcpDiagram, saveMcpTechnology,
+  setMcpIdeaStatus, setMcpRequirementStatus, toggleMcpChecklistItem, updateMcpDecision,
+  updateMcpIdea, updateMcpProject, updateMcpRequirement, updateMcpTask, updateMcpTaskStatus,
+} from "@/lib/mcp/writes";
 
 const handler = createMcpHandler((server) => {
   server.registerTool(
@@ -404,9 +413,281 @@ const handler = createMcpHandler((server) => {
       } catch (error) { return { isError: true, content: [{ type: "text", text: formatMcpGitHubError(error, "No se pudo fusionar el pull request. Comprueba el rol, permiso, estado y SHA actual.") }] }; }
     },
   );
+
+  const writeFailure = (message: string) => ({ isError: true as const, content: [{ type: "text" as const, text: message }] });
+  const writeSuccess = (value: unknown) => ({ content: [{ type: "text" as const, text: serializeMcpOutput(value) }] });
+
+  server.registerTool("create_idea", {
+    title: "Create Armario Dev idea",
+    description: "Creates an idea in a workspace. This changes Armario Dev data and requires an explicit user request plus owner, admin, or editor role.",
+    inputSchema: z.object({ workspaceId: z.string().uuid(), title: z.string().trim().min(1).max(160), description: z.string().max(10_000).default(""), kind: z.enum(["web", "mobile", "frontend", "backend", "mixed", "other", "undecided"]).default("undecided"), tags: z.array(z.string().max(30)).max(12).default([]) }),
+  }, async (input, context) => {
+    try { return writeSuccess(await createMcpIdea(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo crear la idea. Verifica el espacio, los datos y que tengas rol de propietario, administrador o editor."); }
+  });
+
+  server.registerTool("update_idea", {
+    title: "Update Armario Dev idea",
+    description: "Updates an active idea. This changes Armario Dev data and requires an explicit user request plus owner, admin, or editor role.",
+    inputSchema: z.object({ workspaceId: z.string().uuid(), ideaId: z.string().uuid(), title: z.string().trim().min(1).max(160), description: z.string().max(10_000), kind: z.enum(["web", "mobile", "frontend", "backend", "mixed", "other", "undecided"]), tags: z.array(z.string().max(30)).max(12) }),
+  }, async (input, context) => {
+    try { return writeSuccess(await updateMcpIdea(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo actualizar la idea. Comprueba que siga activa y que tengas permisos de edición."); }
+  });
+
+  server.registerTool("set_idea_status", {
+    title: "Archive or restore Armario Dev idea",
+    description: "Archives or restores an idea (converted ideas cannot be changed). This changes Armario Dev data and requires explicit user request and owner/admin/editor role.",
+    inputSchema: z.object({ workspaceId: z.string().uuid(), ideaId: z.string().uuid(), status: z.enum(["active", "archived"]) }),
+  }, async (input, context) => {
+    try { return writeSuccess(await setMcpIdeaStatus(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo cambiar el estado de la idea. Comprueba permisos y que no esté convertida en proyecto."); }
+  });
+
+  server.registerTool("create_task", {
+    title: "Create Armario Dev task",
+    description: "Creates a project task and its checklist atomically. This changes Armario Dev data and requires explicit user request and manager/editor project access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), title: z.string().trim().min(1).max(160), description: z.string().max(10_000).default(""), status: z.enum(["todo", "in_progress", "done"]).default("todo"), priority: z.enum(["low", "medium", "high"]).default("medium"), assigneeId: z.string().nullable().optional(), startDate: z.string().nullable().optional(), dueDate: z.string().nullable().optional(), checklist: z.array(z.string().max(300)).max(30).default([]) }),
+  }, async (input, context) => {
+    try { return writeSuccess(await createMcpTask(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo crear la tarea. Verifica fechas, responsable (miembro del espacio) y permisos de edición del proyecto."); }
+  });
+
+  server.registerTool("update_task", {
+    title: "Update Armario Dev task details",
+    description: "Updates task details (title, description, priority, assignee, dates). This changes Armario Dev data and requires explicit user request and manager/editor project access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), taskId: z.string().uuid(), title: z.string().trim().min(1).max(160).optional(), description: z.string().max(10_000).optional(), priority: z.enum(["low", "medium", "high"]).optional(), assigneeId: z.string().uuid().nullable().optional(), startDate: z.string().nullable().optional(), dueDate: z.string().nullable().optional() }).refine((value) => Object.keys(value).some((key) => !["projectId", "taskId"].includes(key)), "Provide task changes"),
+  }, async ({ projectId, taskId, ...changes }, context) => {
+    try { return writeSuccess(await updateMcpTask(getMcpUserId(context), getMcpAccessToken(context), { projectId, taskId, ...changes })); }
+    catch { return writeFailure("No se pudo actualizar la tarea. Verifica los datos, el responsable y los permisos de edición."); }
+  });
+
+  server.registerTool("update_task_status", {
+    title: "Change Armario Dev task status",
+    description: "Changes a task status. Managers/editors can change project tasks; contributors can change only tasks assigned to them. Requires an explicit user request.",
+    inputSchema: z.object({ projectId: z.string().uuid(), taskId: z.string().uuid(), status: z.enum(["todo", "in_progress", "done", "archived"]) }),
+  }, async (input, context) => {
+    try { return writeSuccess(await updateMcpTaskStatus(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo cambiar el estado. Comprueba la tarea, tu asignación y los permisos del proyecto."); }
+  });
+
+  server.registerTool("create_requirement", {
+    title: "Create Armario Dev requirement",
+    description: "Creates a requirement in a project. This changes Armario Dev data and requires an explicit user request plus manager/editor project access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), title: z.string().trim().min(1).max(160), description: z.string().max(10_000).default(""), acceptanceCriteria: z.string().max(10_000).default(""), kind: z.enum(["functional", "nonfunctional"]).default("functional"), priority: z.enum(["must", "should", "could"]).default("must") }),
+  }, async (input, context) => {
+    try { return writeSuccess(await createMcpRequirement(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo crear el requisito. Comprueba los datos y que tengas permisos de edición del proyecto."); }
+  });
+
+  server.registerTool("update_requirement", {
+    title: "Update Armario Dev requirement",
+    description: "Updates or archives a project requirement. This changes Armario Dev data and requires an explicit user request plus manager/editor project access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), requirementId: z.string().uuid(), title: z.string().trim().min(1).max(160).optional(), description: z.string().max(10_000).optional(), acceptanceCriteria: z.string().max(10_000).optional(), kind: z.enum(["functional", "nonfunctional"]).optional(), priority: z.enum(["must", "should", "could"]).optional(), status: z.enum(["active", "archived"]).optional() }).refine((value) => Object.keys(value).some((key) => !["projectId", "requirementId"].includes(key)), "Provide requirement changes"),
+  }, async ({ projectId, requirementId, ...changes }, context) => {
+    try { return writeSuccess(await updateMcpRequirement(getMcpUserId(context), getMcpAccessToken(context), { projectId, requirementId, ...changes })); }
+    catch { return writeFailure("No se pudo actualizar el requisito. Comprueba los datos y permisos del proyecto."); }
+  });
+
+  server.registerTool("create_adr", {
+    title: "Create Armario Dev architecture decision",
+    description: "Creates an architecture decision record (ADR). This changes Armario Dev data and requires an explicit user request plus manager/editor project access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), title: z.string().trim().min(1).max(160), context: z.string().max(10_000).default(""), decision: z.string().max(10_000).default(""), consequences: z.string().max(10_000).default(""), status: z.enum(["proposed", "accepted", "rejected", "superseded"]).default("proposed"), decidedAt: z.string().optional() }),
+  }, async (input, context) => {
+    try { return writeSuccess(await createMcpDecision(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo crear el ADR. Comprueba la fecha, los datos y los permisos de edición del proyecto."); }
+  });
+
+  server.registerTool("update_adr", {
+    title: "Update Armario Dev architecture decision",
+    description: "Updates an architecture decision record (ADR). This changes Armario Dev data and requires an explicit user request plus manager/editor project access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), decisionId: z.string().uuid(), title: z.string().trim().min(1).max(160).optional(), context: z.string().max(10_000).optional(), decision: z.string().max(10_000).optional(), consequences: z.string().max(10_000).optional(), status: z.enum(["proposed", "accepted", "rejected", "superseded"]).optional(), decidedAt: z.string().optional() }).refine((value) => Object.keys(value).some((key) => !["projectId", "decisionId"].includes(key)), "Provide ADR changes"),
+  }, async ({ projectId, decisionId, ...changes }, context) => {
+    try { return writeSuccess(await updateMcpDecision(getMcpUserId(context), getMcpAccessToken(context), { projectId, decisionId, ...changes })); }
+    catch { return writeFailure("No se pudo actualizar el ADR. Comprueba la fecha, los datos y permisos del proyecto."); }
+  });
+
+  const modulesSchema = z.object({ frontend: z.boolean().optional(), backend: z.boolean().optional(), database: z.boolean().optional(), auth: z.boolean().optional() }).optional();
+  server.registerTool("create_project", {
+    title: "Create Armario Dev project",
+    description: "Creates a project directly in a workspace without an idea. This changes Armario Dev and requires explicit user request plus owner/admin/editor workspace access.",
+    inputSchema: z.object({ workspaceId: z.string().uuid(), title: z.string().trim().min(1).max(160), objective: z.string().max(10_000).default(""), kind: z.enum(["web", "mobile", "frontend", "backend", "mixed", "other"]), stage: z.enum(["definition", "planning", "development", "published", "archived"]).default("definition"), modules: modulesSchema }),
+  }, async (input, context) => {
+    try { return writeSuccess(await createMcpProject(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo crear el proyecto. Comprueba el espacio, los datos y tu permiso de edición."); }
+  });
+
+  server.registerTool("convert_idea_to_project", {
+    title: "Convert Armario Dev idea to project",
+    description: "Creates a project from an active idea, preserving its link and snapshot. This changes Armario Dev and requires explicit user request plus owner/admin/editor workspace access.",
+    inputSchema: z.object({ ideaId: z.string().uuid(), kind: z.enum(["web", "mobile", "frontend", "backend", "mixed", "other"]), objective: z.string().max(10_000).default(""), modules: modulesSchema }),
+  }, async (input, context) => {
+    try { return writeSuccess(await convertMcpIdeaToProject(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo convertir la idea. Comprueba que esté activa y que tengas permisos en su espacio."); }
+  });
+
+  server.registerTool("update_project", {
+    title: "Update Armario Dev project",
+    description: "Updates project title, objective, type, stage, and selected modules. Does not change project visibility or access controls. Requires explicit user request and manager/editor project access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), title: z.string().trim().min(1).max(160).optional(), objective: z.string().max(10_000).optional(), kind: z.enum(["web", "mobile", "frontend", "backend", "mixed", "other"]).optional(), stage: z.enum(["definition", "planning", "development", "published", "archived"]).optional(), modules: modulesSchema }).refine((value) => Object.keys(value).some((key) => key !== "projectId"), "Provide project changes"),
+  }, async ({ projectId, ...changes }, context) => {
+    try { return writeSuccess(await updateMcpProject(getMcpUserId(context), getMcpAccessToken(context), { projectId, ...changes })); }
+    catch { return writeFailure("No se pudo actualizar el proyecto. Comprueba sus datos y permisos de edición."); }
+  });
+
+  server.registerTool("move_project_item", {
+    title: "Reorder task or requirement",
+    description: "Moves a task or requirement one position up/down in its project. Requires explicit user request and manager/editor project access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), entity: z.enum(["task", "requirement"]), entityId: z.string().uuid(), direction: z.enum(["up", "down"]) }),
+  }, async (input, context) => {
+    try { return writeSuccess(await moveMcpProjectItem(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo reordenar el elemento. Comprueba el proyecto y los permisos."); }
+  });
+
+  server.registerTool("set_requirement_status", {
+    title: "Archive or restore requirement",
+    description: "Archives or restores a requirement in Armario Dev. Requires explicit user request and manager/editor project access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), requirementId: z.string().uuid(), status: z.enum(["active", "archived"]) }),
+  }, async (input, context) => {
+    try { return writeSuccess(await setMcpRequirementStatus(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo cambiar el estado del requisito. Comprueba permisos y datos."); }
+  });
+
+  server.registerTool("add_task_checklist_item", {
+    title: "Add task checklist item",
+    description: "Adds a checklist step to a task. Manager/editor access is required; contributors may add steps only to tasks assigned to them.",
+    inputSchema: z.object({ projectId: z.string().uuid(), taskId: z.string().uuid(), content: z.string().trim().min(1).max(300) }),
+  }, async (input, context) => {
+    try { return writeSuccess(await addMcpChecklistItem(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo añadir el paso. Comprueba la tarea, el contenido y que puedas trabajar en ella."); }
+  });
+
+  server.registerTool("set_task_checklist_item", {
+    title: "Mark task checklist item",
+    description: "Marks or unmarks a checklist step. Manager/editor access is required; contributors may update steps only on tasks assigned to them.",
+    inputSchema: z.object({ projectId: z.string().uuid(), taskId: z.string().uuid(), itemId: z.string().uuid(), completed: z.boolean() }),
+  }, async (input, context) => {
+    try { return writeSuccess(await toggleMcpChecklistItem(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo actualizar el paso. Comprueba la tarea y tus permisos."); }
+  });
+
+  server.registerTool("link_task_requirement", {
+    title: "Link task to requirement",
+    description: "Adds or removes a task-requirement traceability link. Requires explicit user request and manager/editor project access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), taskId: z.string().uuid(), requirementId: z.string().uuid(), linked: z.boolean() }),
+  }, async (input, context) => {
+    try { return writeSuccess(await linkMcpTaskRequirement(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo actualizar el vínculo. Comprueba que ambos elementos sean del mismo proyecto."); }
+  });
+
+  server.registerTool("add_project_comment", {
+    title: "Comment on task or requirement",
+    description: "Adds a comment to a task or requirement. Requires explicit user request and manager/editor/contributor project access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), targetType: z.enum(["task", "requirement"]), targetId: z.string().uuid(), content: z.string().trim().min(1).max(5000) }),
+  }, async (input, context) => {
+    try { return writeSuccess(await addMcpComment(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo guardar el comentario. Comprueba el elemento y los permisos del proyecto."); }
+  });
+
+  server.registerTool("list_project_comments", {
+    title: "List project comments",
+    description: "Reads recent project comments, optionally filtered to a task or requirement. Requires project access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), targetType: z.enum(["task", "requirement"]).optional(), targetId: z.string().uuid().optional(), limit: z.number().int().min(1).max(100).optional() }).refine((value) => (value.targetType === undefined) === (value.targetId === undefined), "targetType and targetId must be provided together"),
+  }, async (input, context) => {
+    try { return writeSuccess(await listMcpComments(getMcpUserId(context), input)); }
+    catch { return writeFailure("No se pudieron cargar los comentarios del proyecto."); }
+  });
+
+  server.registerTool("save_project_technology", {
+    title: "Add or update project technology",
+    description: "Adds or updates a technology from Armario Dev's technology catalog. Use status rejected to mark it as discarded. Requires explicit user request and manager/editor access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), technologyId: z.string().uuid().optional(), technologyKey: z.string().min(1).max(80), status: z.enum(["candidate", "selected", "rejected"]), version: z.string().max(80).default(""), rationale: z.string().max(5000).default("") }),
+  }, async (input, context) => {
+    try { return writeSuccess(await saveMcpTechnology(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo guardar la tecnología. Comprueba technologyKey en el catálogo, que no esté duplicada y tus permisos."); }
+  });
+
+  server.registerTool("save_project_diagram", {
+    title: "Create or update project diagram",
+    description: "Creates or versions a Mermaid project diagram. Updates preserve version history. Requires explicit user request and manager/editor access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), diagramId: z.string().uuid().optional(), title: z.string().trim().min(1).max(160), kind: z.enum(["flow", "context", "container", "data_model"]), source: z.string().min(1).max(50_000), status: z.enum(["active", "archived"]).default("active"), changeSummary: z.string().max(500).default("") }),
+  }, async (input, context) => {
+    try { return writeSuccess(await saveMcpDiagram(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo guardar el diagrama. Comprueba la sintaxis/contenido y permisos del proyecto."); }
+  });
+
+  server.registerTool("restore_project_diagram_version", {
+    title: "Restore project diagram version",
+    description: "Restores a specific diagram version while preserving a new history entry. This changes the current diagram and requires explicit user request and manager/editor access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), diagramId: z.string().uuid(), versionId: z.string().uuid() }),
+  }, async (input, context) => {
+    try { return writeSuccess(await restoreMcpDiagramVersion(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo restaurar la versión. Comprueba que pertenezca a ese diagrama y los permisos."); }
+  });
+
+  server.registerTool("link_diagram_traceability", {
+    title: "Link diagram to requirement or ADR",
+    description: "Adds or removes a diagram traceability link to a requirement or ADR in the same project. Requires explicit user request and manager/editor access.",
+    inputSchema: z.object({ projectId: z.string().uuid(), diagramId: z.string().uuid(), targetType: z.enum(["requirement", "decision"]), targetId: z.string().uuid(), linked: z.boolean() }),
+  }, async (input, context) => {
+    try { return writeSuccess(await linkMcpDiagram(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    catch { return writeFailure("No se pudo actualizar la trazabilidad. Comprueba que los elementos pertenezcan al mismo proyecto."); }
+  });
+
+  server.registerTool("delete_github_branch", {
+    title: "Delete GitHub branch",
+    description: "Deletes a branch from the linked GitHub repository; the default branch is protected. This is a destructive remote change. Call only after the user explicitly asks to delete that exact branch. Requires project manager access and Contents: write.",
+    inputSchema: z.object({ projectId: z.string().uuid(), branch: z.string().min(1).max(255) }),
+  }, async ({ projectId, branch }, context) => {
+    try {
+      const result = await deleteMcpGitHubBranch(getMcpUserId(context), projectId, branch);
+      if (!result) return writeFailure("El proyecto no tiene un repositorio GitHub accesible vinculado.");
+      return writeSuccess(result);
+    } catch (error) { return writeFailure(formatMcpGitHubError(error, "No se pudo eliminar la rama. Comprueba rol, permisos y que no sea la rama principal.")); }
+  });
+
+  server.registerTool("save_github_automation_settings", {
+    title: "Configure project GitHub automations",
+    description: "Enables/disables the project's GitHub issue, branch, PR, synchronization, publication and notification automations. Changes project settings; requires an explicit user request and manager access.",
+    inputSchema: z.object({
+      projectId: z.string().uuid(), taskIssueEnabled: z.boolean(), taskBranchEnabled: z.boolean(),
+      taskPrEnabled: z.boolean(), prMergeCompletesTask: z.boolean(), issueStateSync: z.boolean(),
+      documentPublishEnabled: z.boolean(), notificationsEnabled: z.boolean(), branchPrefix: z.string().min(1).max(40),
+    }),
+  }, async ({ projectId, ...input }, context) => {
+    try {
+      const result = await saveMcpGitHubAutomationSettings(getMcpUserId(context), projectId, input);
+      if (!result) return writeFailure("El proyecto no tiene un repositorio GitHub accesible vinculado.");
+      return writeSuccess(result);
+    } catch (error) { return writeFailure(formatMcpGitHubError(error, "No se pudieron guardar las automatizaciones. Comprueba rol y prefijo de rama.")); }
+  });
+
+  server.registerTool("synchronize_github_tasks", {
+    title: "Run GitHub task synchronization",
+    description: "Runs the configured GitHub automations for up to 100 active project tasks. This may create/update remote issues or branches. Requires explicit user request and project manager access.",
+    inputSchema: z.object({ projectId: z.string().uuid() }),
+  }, async ({ projectId }, context) => {
+    try {
+      const result = await synchronizeMcpGitHubTasks(getMcpUserId(context), projectId);
+      if (!result) return writeFailure("El proyecto no tiene un repositorio GitHub accesible vinculado.");
+      return writeSuccess(result);
+    } catch (error) { return writeFailure(formatMcpGitHubError(error, "No se pudo sincronizar las tareas con GitHub.")); }
+  });
+
+  server.registerTool("create_task_github_pull_request", {
+    title: "Create task GitHub pull request",
+    description: "Creates and links a PR using a synchronized task branch; the project's task-PR automation must be enabled. This writes to GitHub and project sync history. Requires explicit user request, manager access and Pull requests: write.",
+    inputSchema: z.object({ projectId: z.string().uuid(), taskId: z.string().uuid(), draft: z.boolean().default(false) }),
+  }, async ({ projectId, taskId, draft }, context) => {
+    try {
+      const result = await createMcpTaskGitHubPullRequest(getMcpUserId(context), projectId, taskId, draft);
+      if (!result) return writeFailure("El proyecto no tiene un repositorio GitHub accesible vinculado.");
+      return writeSuccess(result);
+    } catch (error) { return writeFailure(formatMcpGitHubError(error, "No se pudo crear el PR de la tarea. Comprueba la automatización, la rama y permisos.")); }
+  });
 }, {
   serverInfo: { name: "armario-dev", version: "0.1.0" },
-  instructions: "Armario Dev project workspace. Data is scoped to the authenticated user's workspace and project permissions. Use search_project to discover structured knowledge, then fetch_document for full details. For repository source, call index_project_repository on demand, then search_repository_files and fetch_repository_file; responses identify the indexed commit SHA. GitHub tools can read the linked repository. Tools named create_github_branch, commit_github_files, create_github_issue, update_github_issue, create_github_pull_request, update_github_pull_request, review_github_pull_request, and merge_github_pull_request make remote GitHub changes; they require manager access and the matching GitHub App installation permission, and are recorded in the workspace sync history. Never merge unless the user explicitly requests that exact merge; commits require an expected head SHA.",
+  instructions: "Armario Dev project workspace. Data is scoped to the authenticated user's workspace and project permissions. Use search_project to discover structured knowledge, then fetch_document for full details. For repository source, call index_project_repository on demand, then search_repository_files and fetch_repository_file; responses identify the indexed commit SHA. Native write tools create/update/archive ideas, tasks, requirements and ADRs in Armario Dev; they require an explicit user request and respect workspace/project roles. GitHub tools can read the linked repository. Tools named create_github_branch, commit_github_files, create_github_issue, update_github_issue, create_github_pull_request, update_github_pull_request, review_github_pull_request, and merge_github_pull_request make remote GitHub changes; they require manager access and the matching GitHub App installation permission, and are recorded in the workspace sync history. Never merge unless the user explicitly requests that exact merge; commits require an expected head SHA.",
 });
 
 const authenticatedHandler = withMcpAuth(

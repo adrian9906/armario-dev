@@ -63,10 +63,18 @@ export async function getAccessibleProject(admin: AdminClient, userId: string, p
   return { project: project as AccessibleProject, access };
 }
 
-export function getMcpUserId(context: { http?: { authInfo?: { extra?: Record<string, unknown> } } }) {
+export type McpAuthContext = { http?: { authInfo?: { token?: string; extra?: Record<string, unknown> } } };
+
+export function getMcpUserId(context: McpAuthContext) {
   const userId = context.http?.authInfo?.extra?.userId;
   if (typeof userId !== "string" || !userId) throw new Error("mcp_authenticated_user_missing");
   return userId;
+}
+
+export function getMcpAccessToken(context: McpAuthContext) {
+  const token = context.http?.authInfo?.token;
+  if (typeof token !== "string" || !token) throw new Error("mcp_access_token_missing");
+  return token;
 }
 
 async function getWorkspaceMembership(admin: AdminClient, workspaceId: string, userId: string) {
