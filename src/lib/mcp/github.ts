@@ -13,9 +13,7 @@ import {
   updateGitHubPullRequest,
 } from "@/lib/github/pull-requests";
 import { createGitHubBranch, deleteGitHubBranch, getGitHubCommitDetail, getGitHubProjectSnapshot } from "@/lib/github/repository-activity";
-import { isValidGitBranchName } from "@/lib/github/branch-name";
 import { runTaskGitHubAutomation } from "@/lib/github/automation";
-import { createGitHubPullRequest } from "@/lib/github/pull-requests";
 import { getMcpGitHubRepository } from "@/lib/mcp/repository";
 
 type RepositoryContext = NonNullable<Awaited<ReturnType<typeof getMcpGitHubRepository>>>;
