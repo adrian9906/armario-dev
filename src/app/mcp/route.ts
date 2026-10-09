@@ -449,7 +449,7 @@ const handler = createMcpHandler((server) => {
     description: "Creates a project task and its checklist atomically. This changes Armario Dev data and requires explicit user request and manager/editor project access.",
     inputSchema: z.object({ projectId: z.string().uuid(), title: z.string().trim().min(1).max(160), description: z.string().max(10_000).default(""), status: z.enum(["todo", "in_progress", "done"]).default("todo"), priority: z.enum(["low", "medium", "high"]).default("medium"), assigneeId: z.string().nullable().optional(), startDate: z.string().nullable().optional(), dueDate: z.string().nullable().optional(), checklist: z.array(z.string().max(300)).max(30).default([]) }),
   }, async (input, context) => {
-    try { return writeSuccess(await createMcpTask(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    try { return writeSuccess(await createMcpTask(getMcpUserId(context), input)); }
     catch { return writeFailure("No se pudo crear la tarea. Verifica fechas, responsable (miembro del espacio) y permisos de edición del proyecto."); }
   });
 
@@ -494,7 +494,7 @@ const handler = createMcpHandler((server) => {
     description: "Creates an architecture decision record (ADR). This changes Armario Dev data and requires an explicit user request plus manager/editor project access.",
     inputSchema: z.object({ projectId: z.string().uuid(), title: z.string().trim().min(1).max(160), context: z.string().max(10_000).default(""), decision: z.string().max(10_000).default(""), consequences: z.string().max(10_000).default(""), status: z.enum(["proposed", "accepted", "rejected", "superseded"]).default("proposed"), decidedAt: z.string().optional() }),
   }, async (input, context) => {
-    try { return writeSuccess(await createMcpDecision(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    try { return writeSuccess(await createMcpDecision(getMcpUserId(context), input)); }
     catch { return writeFailure("No se pudo crear el ADR. Comprueba la fecha, los datos y los permisos de edición del proyecto."); }
   });
 
@@ -531,7 +531,7 @@ const handler = createMcpHandler((server) => {
     description: "Updates project title, objective, type, stage, and selected modules. Does not change project visibility or access controls. Requires explicit user request and manager/editor project access.",
     inputSchema: z.object({ projectId: z.string().uuid(), title: z.string().trim().min(1).max(160).optional(), objective: z.string().max(10_000).optional(), kind: z.enum(["web", "mobile", "frontend", "backend", "mixed", "other"]).optional(), stage: z.enum(["definition", "planning", "development", "published", "archived"]).optional(), modules: modulesSchema }).refine((value) => Object.keys(value).some((key) => key !== "projectId"), "Provide project changes"),
   }, async ({ projectId, ...changes }, context) => {
-    try { return writeSuccess(await updateMcpProject(getMcpUserId(context), getMcpAccessToken(context), { projectId, ...changes })); }
+    try { return writeSuccess(await updateMcpProject(getMcpUserId(context), { projectId, ...changes })); }
     catch { return writeFailure("No se pudo actualizar el proyecto. Comprueba sus datos y permisos de edición."); }
   });
 
@@ -612,7 +612,7 @@ const handler = createMcpHandler((server) => {
     description: "Creates or versions a Mermaid project diagram. Updates preserve version history. Requires explicit user request and manager/editor access.",
     inputSchema: z.object({ projectId: z.string().uuid(), diagramId: z.string().uuid().optional(), title: z.string().trim().min(1).max(160), kind: z.enum(["flow", "context", "container", "data_model"]), source: z.string().min(1).max(50_000), status: z.enum(["active", "archived"]).default("active"), changeSummary: z.string().max(500).default("") }),
   }, async (input, context) => {
-    try { return writeSuccess(await saveMcpDiagram(getMcpUserId(context), getMcpAccessToken(context), input)); }
+    try { return writeSuccess(await saveMcpDiagram(getMcpUserId(context), input)); }
     catch { return writeFailure("No se pudo guardar el diagrama. Comprueba la sintaxis/contenido y permisos del proyecto."); }
   });
 

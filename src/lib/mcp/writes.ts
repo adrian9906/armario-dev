@@ -111,9 +111,14 @@ export async function createMcpIdea(userId: string, input: {
   return { id: data.id, ...fields, workspaceId: input.workspaceId, status: "active" };
 }
 
-async function attributeMcpActivity(entityType: "idea" | "project", entityId: string, userId: string) {
+async function attributeMcpActivity(
+  entityType: "idea" | "project" | "task" | "decision" | "diagram",
+  entityId: string,
+  userId: string,
+  action: "created" | "updated" = "created",
+) {
   const { error } = await createAdminClient().from("activity_events").update({ actor_id: userId })
-    .eq("entity_type", entityType).eq("entity_id", entityId).eq("action", "created");
+    .eq("entity_type", entityType).eq("entity_id", entityId).eq("action", action);
   if (error) console.error("MCP activity actor attribution failed", { entityType, entityId, code: error.code });
 }
 
@@ -174,20 +179,39 @@ async function validAssignee(admin: ReturnType<typeof createAdminClient>, worksp
   return !!data;
 }
 
-export async function createMcpTask(userId: string, accessToken: string, input: {
+export async function createMcpTask(userId: string, input: {
   projectId: string; title: string; description?: string; status?: string; priority?: string; assigneeId?: string | null;
   startDate?: string | null; dueDate?: string | null; checklist?: string[];
 }) {
-  const context = await editableProject(userId, input.projectId, accessToken);
-  if (!context) throw new Error("mcp_project_write_forbidden");
+  const project = requireProjectEditor(await accessibleProject(userId, input.projectId));
+  const admin = createAdminClient();
   const fields = validateTask({ ...input, description: input.description ?? "" });
-  if (!await validAssignee(context.admin, context.project.workspace_id, fields.assigneeId)) throw new Error("mcp_task_assignee_not_member");
-  const { data: taskId, error } = await context.user.rpc("create_task_with_checklist", {
-    target_project_id: input.projectId, task_title: fields.title, task_description: fields.description,
-    task_status: fields.status, task_priority: fields.priority, target_assignee_id: fields.assigneeId,
-    target_start_date: fields.startDate, target_due_date: fields.dueDate, checklist_contents: fields.checklist,
-  });
-  if (error || !taskId) throw new Error("mcp_task_create_failed");
+  if (!await validAssignee(admin, project.workspace_id, fields.assigneeId)) throw new Error("mcp_task_assignee_not_member");
+  // MCP writes are authorized against the verified Clerk user above. Use the
+  // server client instead of treating the MCP OAuth token as a Supabase session JWT.
+  const { data: task, error } = await admin.from("tasks").insert({
+    workspace_id: project.workspace_id, project_id: input.projectId, creator_id: userId,
+    title: fields.title, description: fields.description, status: fields.status,
+    priority: fields.priority, assignee_id: fields.assigneeId, start_date: fields.startDate, due_date: fields.dueDate,
+  }).select("id").single();
+  if (error || !task) {
+    console.error("MCP task insert failed", { code: error?.code, message: error?.message });
+    throw new Error("mcp_task_create_failed");
+  }
+  const taskId = task.id;
+  if (fields.checklist.length) {
+    const { error: checklistError } = await admin.from("checklist_items").insert(fields.checklist.map((content, index) => ({
+      workspace_id: project.workspace_id, project_id: input.projectId, task_id: taskId, content, position: index + 1,
+    })));
+    if (checklistError) {
+      const { error: rollbackError } = await admin.from("tasks").delete().eq("id", taskId);
+      console.error("MCP task checklist insert failed", {
+        code: checklistError.code, rollbackCode: rollbackError?.code,
+      });
+      throw new Error("mcp_task_create_failed");
+    }
+  }
+  await attributeMcpActivity("task", taskId, userId);
   scheduleTaskAutomation(input.projectId, taskId, "created");
   refreshProject(input.projectId, `/projects/${input.projectId}/tasks/${taskId}`);
   return { id: taskId, ...fields, projectId: input.projectId };
@@ -331,16 +355,20 @@ function validateDecision(input: { title: string; context?: string; decision?: s
   return { title, context, decision, consequences, status, decided_at };
 }
 
-export async function createMcpDecision(userId: string, accessToken: string, input: {
+export async function createMcpDecision(userId: string, input: {
   projectId: string; title: string; context?: string; decision?: string; consequences?: string; status?: string; decidedAt?: string;
 }) {
-  const context = await editableProject(userId, input.projectId, accessToken);
-  if (!context) throw new Error("mcp_project_write_forbidden");
+  const project = requireProjectEditor(await accessibleProject(userId, input.projectId));
+  const admin = createAdminClient();
   const fields = validateDecision(input);
-  const { data, error } = await context.user.from("architecture_decisions").insert({
-    ...fields, project_id: input.projectId, workspace_id: context.project.workspace_id, creator_id: userId,
+  const { data, error } = await admin.from("architecture_decisions").insert({
+    ...fields, project_id: input.projectId, workspace_id: project.workspace_id, creator_id: userId,
   }).select("id,title,status,context,decision,consequences,decided_at,updated_at").single();
-  if (error || !data) throw new Error("mcp_adr_create_failed");
+  if (error || !data) {
+    console.error("MCP ADR insert failed", { code: error?.code, message: error?.message });
+    throw new Error("mcp_adr_create_failed");
+  }
+  await attributeMcpActivity("decision", data.id, userId);
   scheduleDocumentAutomation(input.projectId, "decision", data.id, userId);
   refreshProject(input.projectId, `/projects/${input.projectId}/documentation/decisions/${data.id}`);
   return { ...data, projectId: input.projectId };
@@ -428,11 +456,12 @@ export async function convertMcpIdeaToProject(userId: string, accessToken: strin
   return { projectId, originIdeaId: input.ideaId };
 }
 
-export async function updateMcpProject(userId: string, accessToken: string, input: {
+export async function updateMcpProject(userId: string, input: {
   projectId: string; title?: string; objective?: string; kind?: string; stage?: string;
   modules?: Partial<Record<"frontend" | "backend" | "database" | "auth", boolean>>;
 }) {
   const project = requireProjectEditor(await accessibleProject(userId, input.projectId));
+  const admin = createAdminClient();
   const values: Record<string, unknown> = {};
   if (input.title !== undefined) {
     const title = input.title.trim();
@@ -454,7 +483,6 @@ export async function updateMcpProject(userId: string, accessToken: string, inpu
   if (input.modules !== undefined) {
     if (Object.keys(input.modules).some((key) => !moduleOptions.some((option) => option.value === key)))
       throw new Error("mcp_project_invalid_modules");
-    const admin = createAdminClient();
     const { data: current, error: currentError } = await admin.from("projects").select("modules")
       .eq("id", input.projectId).maybeSingle();
     if (currentError || !current) throw new Error("mcp_project_lookup_failed");
@@ -464,10 +492,13 @@ export async function updateMcpProject(userId: string, accessToken: string, inpu
     ]));
   }
   if (!Object.keys(values).length) throw new Error("mcp_project_no_changes");
-  const db = createMcpSupabaseClient(accessToken);
-  const { data, error } = await db.from("projects").update(values).eq("id", input.projectId)
+  const { data, error } = await admin.from("projects").update(values).eq("id", input.projectId)
     .eq("workspace_id", project.workspace_id).select("id,title,objective,kind,stage,modules").maybeSingle();
-  if (error || !data) throw new Error("mcp_project_update_failed");
+  if (error || !data) {
+    console.error("MCP project update failed", { code: error?.code, message: error?.message });
+    throw new Error("mcp_project_update_failed");
+  }
+  await attributeMcpActivity("project", input.projectId, userId, "updated");
   refreshProject(input.projectId);
   return data;
 }
@@ -618,11 +649,12 @@ export async function saveMcpTechnology(userId: string, accessToken: string, inp
   return result.data;
 }
 
-export async function saveMcpDiagram(userId: string, accessToken: string, input: {
+export async function saveMcpDiagram(userId: string, input: {
   projectId: string; diagramId?: string; title: string; kind: string; source: string; status?: "active" | "archived"; changeSummary?: string;
 }) {
-  const access = await editableProject(userId, input.projectId, accessToken);
-  if (!access || (input.diagramId && !uuid.test(input.diagramId))) throw new Error("mcp_diagram_write_forbidden");
+  const project = requireProjectEditor(await accessibleProject(userId, input.projectId));
+  if (input.diagramId && !uuid.test(input.diagramId)) throw new Error("mcp_diagram_write_forbidden");
+  const admin = createAdminClient();
   const title = input.title.trim();
   const status = input.status ?? "active";
   const changeSummary = input.changeSummary ?? "";
@@ -632,21 +664,36 @@ export async function saveMcpDiagram(userId: string, accessToken: string, input:
   let data: { id: string } | null = null;
   let error: unknown = null;
   if (input.diagramId) {
-    const result = await access.user.rpc("update_project_diagram", {
-      target_diagram_id: input.diagramId, diagram_title: title, diagram_kind: input.kind,
-      diagram_source: input.source, diagram_status: status, revision_summary: changeSummary,
-    });
-    data = result.data ? { id: result.data } : null;
+    const result = await admin.from("project_diagrams").update({ title, kind: input.kind, source: input.source, status })
+      .eq("id", input.diagramId).eq("project_id", input.projectId).eq("workspace_id", project.workspace_id)
+      .select("id").maybeSingle();
+    data = result.data;
     error = result.error;
   } else {
-    const result = await access.user.from("project_diagrams").insert({
+    const result = await admin.from("project_diagrams").insert({
       title, kind: input.kind, source: input.source, status, project_id: input.projectId,
-      workspace_id: access.project.workspace_id, creator_id: userId,
+      workspace_id: project.workspace_id, creator_id: userId,
     }).select("id").single();
     data = result.data;
     error = result.error;
   }
-  if (error || !data) throw new Error("mcp_diagram_save_failed");
+  if (error || !data) {
+    const dbError = error as { code?: string; message?: string } | null;
+    console.error("MCP diagram save failed", { code: dbError?.code, message: dbError?.message });
+    throw new Error("mcp_diagram_save_failed");
+  }
+  if (input.diagramId) await attributeMcpActivity("diagram", data.id, userId, "updated");
+  else await attributeMcpActivity("diagram", data.id, userId);
+  const { data: latestVersion, error: versionLookupError } = await admin.from("project_diagram_versions")
+    .select("id").eq("diagram_id", data.id).order("version_number", { ascending: false }).limit(1).maybeSingle();
+  if (versionLookupError) console.error("MCP diagram version lookup failed", { code: versionLookupError.code });
+  if (latestVersion) {
+    const { error: versionUpdateError } = await admin.from("project_diagram_versions").update({
+      created_by: userId,
+      change_summary: changeSummary || (input.diagramId ? "Actualización del diagrama" : "Versión inicial"),
+    }).eq("id", latestVersion.id);
+    if (versionUpdateError) console.error("MCP diagram version attribution failed", { code: versionUpdateError.code });
+  }
   scheduleDocumentAutomation(input.projectId, "diagram", data.id, userId);
   refreshProject(input.projectId, `/projects/${input.projectId}/documentation/diagrams/${data.id}`);
   return { id: data.id, projectId: input.projectId, title, kind: input.kind, status };
